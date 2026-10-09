@@ -6,14 +6,17 @@ from django.db.models import Q
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework import mixins, permissions
 from .models import ImportJob
-from .serializers import ImportJobSerializer
+from .serializers import ImportJobSerializer, AIQuerySerializer
 from drf_spectacular.utils import extend_schema, OpenApiParameter
-
+from drf_spectacular.types import OpenApiTypes
+from .ai import interpret
+from .models import Indicator
 
 class LayerViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Layer.objects.filter(is_active=True).select_related('source')
+    queryset = Layer.objects.filter(is_active=True).select_related('source').order_by('name')
     serializer_class = LayerSerializer
 
     def get_queryset(self):
@@ -64,10 +67,11 @@ class IndicatorViewSet(viewsets.ReadOnlyModelViewSet):
 class SearchView(APIView):
     MAX_RESULTS = 20
 
-    @extend_schema(parameters=[
-        OpenApiParameter('q', str, required=True, description='Nome ou código (mínimo 2 caracteres)'),
-    ])
-
+    @extend_schema(
+        parameters=[OpenApiParameter('q', str, required=True,
+                                     description='Nome ou código (mínimo 2 caracteres)')],
+        responses=OpenApiTypes.OBJECT,
+    )
     def get(self, request):
         q = request.query_params.get('q', '').strip()
         if len(q) < 2:
@@ -95,6 +99,7 @@ class SearchView(APIView):
 
 
 class FeatureListView(APIView):
+    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id='features_list')
     def get(self, request):
         return Response({
             'count': 0, 'next': None, 'previous': None, 'results': [],
@@ -103,11 +108,13 @@ class FeatureListView(APIView):
 
 
 class FeatureDetailView(APIView):
+    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id='features_detail')
     def get(self, request, pk):
         return Response({'detail': 'Feição não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
 
 
 class TilesetListView(APIView):
+    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id='tilesets_list')
     def get(self, request):
         return Response({'count': 0, 'results': [], 'message': 'Nenhum tileset publicado.'})
 
@@ -116,3 +123,53 @@ class ImportJobViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, viewsets.
     queryset = ImportJob.objects.select_related('source').order_by('-created_at')
     serializer_class = ImportJobSerializer
     permission_classes = [permissions.IsAdminUser]  # "quando autorizado", como no PDF
+
+
+class AIQueryView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'ai'
+
+    @extend_schema(request=AIQuerySerializer, responses=OpenApiTypes.OBJECT)
+    def post(self, request):
+        if not hasattr(request.data, 'get'):
+            return Response({'detail': 'Corpo inválido: envie um JSON como {"question": "..."}.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        question = str(request.data.get('question', '')).strip()
+        if len(question) < 5:
+            return Response({'detail': 'Envie "question" com a pergunta.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        params = interpret(question)
+        territory, category = params['territory'], params['category']
+
+        # US11: pergunta sem localização
+        if territory is None:
+            return Response({
+                'status': 'needs_more_info',
+                'message': 'Não identifiquei o território. Informe o município ou bairro da análise.',
+            })
+
+        qs = Indicator.objects.filter(territory=territory)
+        if category:
+            qs = qs.filter(category=category)
+        records = list(qs.select_related('territory', 'source').order_by('-period')[:20])
+
+        # US10: sem dados
+        if not records:
+            return Response({
+                'status': 'no_data',
+                'message': f'Não há dados disponíveis para "{territory.name}"'
+                           + (f' na categoria "{category}".' if category else '.'),
+            })
+
+        # US08/US09: resposta montada só com o que veio do banco, com a fonte de cada item
+        lines = [f'{r.name}: {r.value} {r.unit} ({r.period:%Y}) — fonte: {r.source.name}'
+                 for r in records]
+        return Response({
+            'status': 'ok',
+            'parameters': {'territory': territory.code, 'category': category},
+            'answer': f'Dados encontrados para {territory.name}:\n' + '\n'.join(lines),
+            'sources': sorted({r.source.name for r in records}),
+            'records': IndicatorSerializer(records, many=True).data,
+        })

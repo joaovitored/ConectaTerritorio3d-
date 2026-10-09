@@ -31,3 +31,6 @@ class ImportJobSerializer(serializers.ModelSerializer):
         model = ImportJob
         fields = ['id', 'source', 'status', 'version', 'error_log', 'created_at', 'finished_at']
         read_only_fields = ['status', 'error_log', 'created_at', 'finished_at']
+
+class AIQuerySerializer(serializers.Serializer):
+    question = serializers.CharField(min_length=5, max_length=500)
