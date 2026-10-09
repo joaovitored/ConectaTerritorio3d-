@@ -1,6 +1,7 @@
 # api/serializers.py (arquivo novo)
 from rest_framework import serializers
 from .models import Layer, Territory, Indicator
+from .models import ImportJob
 
 class LayerSerializer(serializers.ModelSerializer):
     source = serializers.CharField(source='source.name')
@@ -23,3 +24,10 @@ class IndicatorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Indicator
         fields = ['id', 'territory', 'category', 'name', 'value', 'unit', 'period', 'source']
+
+
+class ImportJobSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ImportJob
+        fields = ['id', 'source', 'status', 'version', 'error_log', 'created_at', 'finished_at']
+        read_only_fields = ['status', 'error_log', 'created_at', 'finished_at']
