@@ -38,6 +38,22 @@ Links locais:
 
 O banco `db.sqlite3` não é versionado: cada pessoa cria o seu com o `migrate`.
 
+Como inserir dados no PostgreSQL
+# 1. Acessar o banco de dados pelo Docker
+docker compose exec db psql -U conecta_user -d conecta_territorio
+
+# 2. Inserir dados na tabela territorios
+INSERT INTO territorios (nome, tipo_territorio, codigo, descricao)
+VALUES ('Olinda', 'municipio', '2609600', 'Município de Pernambuco');
+
+# 3. Visualizar os dados inseridos
+SELECT * FROM territorios;
+
+# 4. Visualizar todas as tabelas
+\dt
+
+Observação: para inserir dados em outras tabelas, utilize o comando INSERT INTO com o nome da tabela, as colunas e os valores correspondentes.
+
 ## Endpoints
 
 | Método | Rota | Descrição |
@@ -115,7 +131,7 @@ python manage.py test
 
 - [x] Endpoints base, busca e documentação Swagger
 - [x] Endpoint de IA com tratamento de "sem dados" e pergunta incompleta
-- [ ] PostGIS, lotes e edificações com geometria
+- [x] PostGIS, lotes e edificações com geometria
 - [ ] `/api/features/` com GeoJSON
 - [ ] Importação real de dados (ETL)
 - [ ] Integração com LLM
