@@ -8,7 +8,8 @@ API em Django REST Framework da plataforma 3D georreferenciada de dados territor
 - Django REST Framework
 - drf-spectacular (documentação OpenAPI/Swagger)
 - django-cors-headers
-- SQLite (por enquanto; PostgreSQL + PostGIS entra com o modelo geoespacial)
+- SQLite (banco que a API usa hoje)
+- PostgreSQL + PostGIS 16 em Docker (banco geoespacial, ainda não conectado à API; veja a seção abaixo)
 
 ## Como rodar
 
@@ -38,21 +39,102 @@ Links locais:
 
 O banco `db.sqlite3` não é versionado: cada pessoa cria o seu com o `migrate`.
 
-Como inserir dados no PostgreSQL
-# 1. Acessar o banco de dados pelo Docker
-docker compose exec db psql -U conecta_user -d conecta_territorio
+## Banco geoespacial (PostgreSQL + PostGIS no Docker)
 
-# 2. Inserir dados na tabela territorios
+O banco geoespacial roda num container Docker, definido no arquivo `compose.yaml`. Ele é **separado** do `db.sqlite3` que a API usa hoje.
+
+### Pré-requisito
+
+Ter o **Docker Desktop** instalado e aberto (no Windows, ele precisa estar rodando antes de qualquer comando `docker`). Para conferir: `docker --version`.
+
+### Dados de conexão
+
+| Item | Valor |
+|---|---|
+| Imagem | `postgis/postgis:16-3.5` |
+| Container | `conecta_territorio_db` |
+| Host | `localhost` |
+| Porta (no seu PC) | `5433` (a porta 5432 fica livre para outro Postgres) |
+| Banco | `conecta_territorio` |
+| Usuário | `conecta_user` |
+| Senha | `conecta_dev_123` (somente desenvolvimento local) |
+
+Para abrir em DBeaver, pgAdmin ou outra ferramenta, use esses mesmos dados.
+
+### Comandos do dia a dia
+
+```bash
+# Subir o banco em segundo plano (na pasta onde está o compose.yaml)
+docker compose up -d
+
+# Ver se está rodando e saudável
+docker compose ps
+
+# Ver os logs do banco
+docker compose logs db
+
+# Desligar o banco (os dados continuam salvos no volume)
+docker compose down
+
+# Desligar E APAGAR todos os dados do banco (cuidado)
+docker compose down -v
+```
+
+### Como inserir e consultar dados
+
+Entre no banco pelo terminal (pode ser o terminal do VS Code):
+
+```bash
+docker compose exec db psql -U conecta_user -d conecta_territorio
+```
+
+Dentro do `psql`:
+
+```sql
+-- Inserir um território
 INSERT INTO territorios (nome, tipo_territorio, codigo, descricao)
 VALUES ('Olinda', 'municipio', '2609600', 'Município de Pernambuco');
 
-# 3. Visualizar os dados inseridos
+-- Ver os dados inseridos
 SELECT * FROM territorios;
 
-# 4. Visualizar todas as tabelas
+-- Listar todas as tabelas
 \dt
 
-Observação: para inserir dados em outras tabelas, utilize o comando INSERT INTO com o nome da tabela, as colunas e os valores correspondentes.
+-- Sair
+\q
+```
+
+Para inserir em outras tabelas, use `INSERT INTO <tabela> (colunas) VALUES (valores);`. Para ver as colunas de uma tabela: `\d nome_da_tabela`.
+
+### Importante: cada pessoa tem o seu banco
+
+O Docker **não compartilha** o banco entre computadores. Quando cada pessoa roda `docker compose up -d`, cria um banco próprio e vazio na sua máquina. Dados inseridos num PC **não aparecem** nos outros.
+
+Para o time testar o mesmo banco, existem duas saídas:
+
+1. Quem criou as tabelas deixa o script SQL no repositório (por exemplo `db/init.sql`), para todos criarem as mesmas tabelas e dados de teste.
+2. Quem tem o banco deixa o computador ligado e acessível na rede para os outros se conectarem (só funciona com todos na mesma rede).
+
+> **Pendência:** as tabelas foram criadas direto pelo terminal e o script de criação ainda não está no repositório. Quem subir o container pela primeira vez terá um banco **sem tabelas** até o script ser adicionado.
+
+### Estado atual da integração
+
+- A API (Django) ainda usa **SQLite**. As tabelas do PostGIS ainda não são lidas por ela.
+- A conexão do Django com o PostGIS e os models com geometria são a próxima etapa.
+
+## Quando alguém adicionar algo novo no projeto
+
+Depois de um `git pull`, rode o que se aplica:
+
+| Mudou o quê | O que rodar |
+|---|---|
+| `requirements.txt` | `python -m pip install -r requirements.txt` |
+| Pasta `api/migrations/` (novo model ou campo) | `python manage.py migrate` |
+| `compose.yaml` (Docker) | `docker compose up -d` |
+| Qualquer código | `python manage.py test` (precisa passar antes de subir) |
+
+Antes de commitar: `python manage.py test`, e se mudou um model, `python manage.py makemigrations` e comite o arquivo gerado.
 
 ## Endpoints
 
@@ -89,6 +171,7 @@ ProjetoResidencia/
 │   ├── urls.py               Rotas principais: /admin/, /api/, /api/docs/
 │   ├── asgi.py               Ponto de entrada para servidores ASGI (produção)
 │   └── wsgi.py               Ponto de entrada para servidores WSGI (produção)
+├── compose.yaml              Sobe o PostgreSQL + PostGIS em Docker
 ├── manage.py                 Comando do Django (runserver, migrate, test, ...)
 ├── requirements.txt          Dependências do projeto
 ├── README.MD                 Este arquivo
@@ -131,7 +214,9 @@ python manage.py test
 
 - [x] Endpoints base, busca e documentação Swagger
 - [x] Endpoint de IA com tratamento de "sem dados" e pergunta incompleta
-- [x] PostGIS, lotes e edificações com geometria
+- [x] Container PostgreSQL + PostGIS (Docker) e tabela `territorios` criada
+- [ ] Script SQL das tabelas versionado no repositório
+- [ ] Conectar o Django ao PostGIS e criar models de lotes e edificações com geometria
 - [ ] `/api/features/` com GeoJSON
 - [ ] Importação real de dados (ETL)
 - [ ] Integração com LLM
