@@ -1,0 +1,848 @@
+openapi: 3.0.3
+info:
+  title: Conecta Território 3D API
+  version: 0.1.0
+paths:
+  /api/ai/query/:
+    post:
+      operationId: ai_query_create
+      description: 'Pergunta em linguagem natural. A resposta é montada só com dados
+        do banco e sempre cita a fonte. Limite: 10 requisições por minuto (429 ao
+        exceder).'
+      tags:
+      - ai
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIQuery'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AIQuery'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AIQuery'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIQueryResponse'
+              examples:
+                ComDados:
+                  value:
+                    status: ok
+                    parameters:
+                      territory: '2611606'
+                      category: zoning
+                    answer: |-
+                      Dados encontrados para Recife:
+                      Zona ZUR-1: 12.5000 % (2024) — fonte: Prefeitura do Recife
+                    sources:
+                    - Prefeitura do Recife
+                    records:
+                    - id: 1
+                      territory: '2611606'
+                      category: zoning
+                      name: Zona ZUR-1
+                      value: '12.5000'
+                      unit: '%'
+                      period: '2024-01-01'
+                      source: Prefeitura do Recife
+                  summary: Com dados
+                PerguntaSemTerritório:
+                  value:
+                    status: needs_more_info
+                    message: Não identifiquei o território. Informe o município ou
+                      bairro da análise.
+                  summary: Pergunta sem território
+                SemDados:
+                  value:
+                    status: no_data
+                    message: Não há dados disponíveis para "Recife" na categoria "fiscal".
+                  summary: Sem dados
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ''
+  /api/auth/login/:
+    post:
+      operationId: auth_login
+      description: POST usuário e senha → devolve o token. Limitado a 10 tentativas/min
+        (anti força bruta).
+      summary: 'Login: troca usuário e senha por um token'
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          description: ''
+        '400':
+          description: No response body
+        '429':
+          description: No response body
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout
+      description: Apaga o token do usuário (o próximo login gera outro).
+      summary: 'Logout: invalida o token'
+      tags:
+      - auth
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/auth/me/:
+    get:
+      operationId: auth_me
+      description: Quem está logado — o front usa para saber se o token ainda vale.
+      summary: Dados do usuário logado
+      tags:
+      - auth
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+          description: ''
+  /api/features/:
+    get:
+      operationId: features_list
+      description: 'EM DESENVOLVIMENTO: ainda devolve lista vazia. O formato final
+        será GeoJSON.'
+      tags:
+      - features
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StubList'
+          description: ''
+  /api/features/{id}/:
+    get:
+      operationId: features_detail
+      description: 'EM DESENVOLVIMENTO: ainda responde 404.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - features
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ''
+  /api/imports/:
+    get:
+      operationId: imports_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - imports
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedImportJobList'
+          description: ''
+    post:
+      operationId: imports_create
+      tags:
+      - imports
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportJob'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ImportJob'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ImportJob'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJob'
+          description: ''
+  /api/indicators/:
+    get:
+      operationId: indicators_list
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: string
+        description: Categoria do indicador
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: period
+        schema:
+          type: string
+        description: Data do período, formato AAAA-MM-DD
+      - in: query
+        name: territory
+        schema:
+          type: string
+        description: Código do território
+      tags:
+      - indicators
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIndicatorList'
+          description: ''
+  /api/indicators/{id}/:
+    get:
+      operationId: indicators_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this indicator.
+        required: true
+      tags:
+      - indicators
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Indicator'
+          description: ''
+  /api/layers/:
+    get:
+      operationId: layers_list
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: string
+        description: 'Categoria: cadastral, fiscal, zoning, infra, land_use, terrain
+          ou socio_env'
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - layers
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLayerList'
+          description: ''
+  /api/layers/{id}/:
+    get:
+      operationId: layers_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this layer.
+        required: true
+      tags:
+      - layers
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Layer'
+          description: ''
+  /api/search/:
+    get:
+      operationId: search_retrieve
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Nome ou código (mínimo 2 caracteres)
+        required: true
+      tags:
+      - search
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ''
+  /api/territories/:
+    get:
+      operationId: territories_list
+      parameters:
+      - in: query
+        name: code
+        schema:
+          type: string
+        description: Código exato do território
+      - in: query
+        name: name
+        schema:
+          type: string
+        description: Parte do nome (sem diferenciar maiúsculas)
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: parent
+        schema:
+          type: string
+        description: 'Código do território pai (ex.: município de um bairro)'
+      - in: query
+        name: type
+        schema:
+          type: string
+        description: municipio, bairro ou setor
+      tags:
+      - territories
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTerritoryList'
+          description: ''
+  /api/territories/{id}/:
+    get:
+      operationId: territories_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this territory.
+        required: true
+      tags:
+      - territories
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Territory'
+          description: ''
+  /api/tilesets/:
+    get:
+      operationId: tilesets_list
+      description: 'EM DESENVOLVIMENTO: ainda devolve lista vazia.'
+      tags:
+      - tilesets
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StubList'
+          description: ''
+components:
+  schemas:
+    AIParameters:
+      type: object
+      properties:
+        territory:
+          type: string
+          description: Código do território identificado
+        category:
+          type: string
+          nullable: true
+          description: Categoria identificada (ou null)
+      required:
+      - category
+      - territory
+    AIQuery:
+      type: object
+      properties:
+        question:
+          type: string
+          maxLength: 500
+          minLength: 5
+      required:
+      - question
+    AIQueryResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/AIQueryResponseStatusEnum'
+        message:
+          type: string
+          description: Presente em needs_more_info e no_data
+        parameters:
+          $ref: '#/components/schemas/AIParameters'
+        answer:
+          type: string
+          description: Texto montado só com dados do banco (status ok)
+        sources:
+          type: array
+          items:
+            type: string
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/Indicator'
+      required:
+      - status
+    AIQueryResponseStatusEnum:
+      enum:
+      - ok
+      - needs_more_info
+      - no_data
+      type: string
+      description: |-
+        * `ok` - ok
+        * `needs_more_info` - needs_more_info
+        * `no_data` - no_data
+    CategoryEnum:
+      enum:
+      - cadastral
+      - fiscal
+      - zoning
+      - infra
+      - land_use
+      - terrain
+      - socio_env
+      type: string
+      description: |-
+        * `cadastral` - Cadastral e imobiliário
+        * `fiscal` - Fiscal
+        * `zoning` - Zoneamento e legislação
+        * `infra` - Infraestrutura
+        * `land_use` - Uso e ocupação do solo
+        * `terrain` - Terreno
+        * `socio_env` - Socioeconômico e ambiental
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ImportJob:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        source:
+          type: integer
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ImportJobStatusEnum'
+          readOnly: true
+        version:
+          type: string
+          maxLength: 50
+        error_log:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - error_log
+      - finished_at
+      - id
+      - source
+      - status
+    ImportJobStatusEnum:
+      enum:
+      - pending
+      - running
+      - done
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pendente
+        * `running` - Em execução
+        * `done` - Concluída
+        * `failed` - Falhou
+    Indicator:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        territory:
+          type: string
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        name:
+          type: string
+          maxLength: 200
+        value:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,14}(?:\.\d{0,4})?$
+        unit:
+          type: string
+          maxLength: 30
+        period:
+          type: string
+          format: date
+        source:
+          type: string
+      required:
+      - category
+      - id
+      - name
+      - period
+      - source
+      - territory
+      - value
+    Layer:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        source:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - category
+      - id
+      - name
+      - source
+      - updated_at
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+      - password
+      - username
+    MeResponse:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        is_staff:
+          type: boolean
+      required:
+      - email
+      - is_staff
+      - username
+    PaginatedImportJobList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportJob'
+    PaginatedIndicatorList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Indicator'
+    PaginatedLayerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Layer'
+    PaginatedTerritoryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Territory'
+    SearchResponse:
+      type: object
+      properties:
+        query:
+          type: string
+        territories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Territory'
+        layers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Layer'
+        message:
+          type: string
+          description: Só aparece quando nada foi encontrado
+      required:
+      - layers
+      - query
+      - territories
+    StubList:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          nullable: true
+        previous:
+          type: string
+          nullable: true
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        message:
+          type: string
+      required:
+      - count
+      - message
+      - results
+    Territory:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        code:
+          type: string
+          maxLength: 50
+        name:
+          type: string
+          maxLength: 200
+        parent:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - code
+      - id
+      - name
+      - parent
+      - type
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+      required:
+      - token
+    TypeEnum:
+      enum:
+      - municipio
+      - bairro
+      - setor
+      type: string
+      description: |-
+        * `municipio` - Município
+        * `bairro` - Bairro
+        * `setor` - Setor
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Token-based authentication with required prefix "Token"

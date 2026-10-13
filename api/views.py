@@ -9,12 +9,16 @@ from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework import mixins, permissions
 from .models import ImportJob
-from .serializers import ImportJobSerializer, AIQuerySerializer
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from .serializers import (ImportJobSerializer, AIQuerySerializer, ErrorSerializer,
+                          SearchResponseSerializer, AIQueryResponseSerializer, StubListSerializer)
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 from .ai import interpret
 from .models import Indicator
 
+@extend_schema_view(list=extend_schema(parameters=[
+    OpenApiParameter('category', str, description='Categoria: cadastral, fiscal, zoning, infra, land_use, terrain ou socio_env'),
+]))
 class LayerViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Layer.objects.filter(is_active=True).select_related('source').order_by('name')
     serializer_class = LayerSerializer
@@ -29,6 +33,12 @@ class LayerViewSet(viewsets.ReadOnlyModelViewSet):
 from .models import Layer, Territory, Indicator
 from .serializers import LayerSerializer, TerritorySerializer, IndicatorSerializer
 
+@extend_schema_view(list=extend_schema(parameters=[
+    OpenApiParameter('type', str, description='municipio, bairro ou setor'),
+    OpenApiParameter('code', str, description='Código exato do território'),
+    OpenApiParameter('name', str, description='Parte do nome (sem diferenciar maiúsculas)'),
+    OpenApiParameter('parent', str, description='Código do território pai (ex.: município de um bairro)'),
+]))
 class TerritoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Territory.objects.all().order_by('name')
     serializer_class = TerritorySerializer
@@ -47,6 +57,11 @@ class TerritoryViewSet(viewsets.ReadOnlyModelViewSet):
         return qs
 
 
+@extend_schema_view(list=extend_schema(parameters=[
+    OpenApiParameter('territory', str, description='Código do território'),
+    OpenApiParameter('category', str, description='Categoria do indicador'),
+    OpenApiParameter('period', str, description='Data do período, formato AAAA-MM-DD'),
+]))
 class IndicatorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Indicator.objects.select_related('territory', 'source').order_by('-period')
     serializer_class = IndicatorSerializer
@@ -70,7 +85,7 @@ class SearchView(APIView):
     @extend_schema(
         parameters=[OpenApiParameter('q', str, required=True,
                                      description='Nome ou código (mínimo 2 caracteres)')],
-        responses=OpenApiTypes.OBJECT,
+        responses={200: SearchResponseSerializer, 400: ErrorSerializer},
     )
     def get(self, request):
         q = request.query_params.get('q', '').strip()
@@ -99,7 +114,8 @@ class SearchView(APIView):
 
 
 class FeatureListView(APIView):
-    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id='features_list')
+    @extend_schema(responses=StubListSerializer, operation_id='features_list',
+                   description='EM DESENVOLVIMENTO: ainda devolve lista vazia. O formato final será GeoJSON.')
     def get(self, request):
         return Response({
             'count': 0, 'next': None, 'previous': None, 'results': [],
@@ -108,13 +124,15 @@ class FeatureListView(APIView):
 
 
 class FeatureDetailView(APIView):
-    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id='features_detail')
+    @extend_schema(responses={404: ErrorSerializer}, operation_id='features_detail',
+                   description='EM DESENVOLVIMENTO: ainda responde 404.')
     def get(self, request, pk):
         return Response({'detail': 'Feição não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
 
 
 class TilesetListView(APIView):
-    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id='tilesets_list')
+    @extend_schema(responses=StubListSerializer, operation_id='tilesets_list',
+                   description='EM DESENVOLVIMENTO: ainda devolve lista vazia.')
     def get(self, request):
         return Response({'count': 0, 'results': [], 'message': 'Nenhum tileset publicado.'})
 
@@ -130,7 +148,28 @@ class AIQueryView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = 'ai'
 
-    @extend_schema(request=AIQuerySerializer, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        request=AIQuerySerializer,
+        responses={200: AIQueryResponseSerializer, 400: ErrorSerializer, 429: ErrorSerializer},
+        description='Pergunta em linguagem natural. A resposta é montada só com dados do banco e sempre cita a fonte. '
+                    'Limite: 10 requisições por minuto (429 ao exceder).',
+        examples=[
+            OpenApiExample('Com dados', response_only=True, status_codes=['200'], value={
+                'status': 'ok',
+                'parameters': {'territory': '2611606', 'category': 'zoning'},
+                'answer': 'Dados encontrados para Recife:\nZona ZUR-1: 12.5000 % (2024) — fonte: Prefeitura do Recife',
+                'sources': ['Prefeitura do Recife'],
+                'records': [{'id': 1, 'territory': '2611606', 'category': 'zoning', 'name': 'Zona ZUR-1',
+                             'value': '12.5000', 'unit': '%', 'period': '2024-01-01', 'source': 'Prefeitura do Recife'}],
+            }),
+            OpenApiExample('Pergunta sem território', response_only=True, status_codes=['200'], value={
+                'status': 'needs_more_info',
+                'message': 'Não identifiquei o território. Informe o município ou bairro da análise.'}),
+            OpenApiExample('Sem dados', response_only=True, status_codes=['200'], value={
+                'status': 'no_data',
+                'message': 'Não há dados disponíveis para "Recife" na categoria "fiscal".'}),
+        ],
+    )
     def post(self, request):
         if not hasattr(request.data, 'get'):
             return Response({'detail': 'Corpo inválido: envie um JSON como {"question": "..."}.'},

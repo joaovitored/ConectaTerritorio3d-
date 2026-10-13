@@ -56,6 +56,12 @@ class TerritoryTests(BaseTest):
         self.assertEqual(r['count'], 1)
         self.assertEqual(r['results'][0]['name'], 'Boa Vista')
 
+    def test_parent_na_resposta_e_o_codigo(self):
+        r = self.client.get('/api/territories/?type=bairro').json()['results'][0]
+        self.assertEqual(r['parent'], '2611606')   # mesmo valor aceito em ?parent=
+        r = self.client.get('/api/territories/?type=municipio').json()['results'][0]
+        self.assertIsNone(r['parent'])
+
     def test_filtro_nome_parcial(self):
         self.assertEqual(self.client.get('/api/territories/?name=boa').json()['count'], 1)
 
@@ -197,3 +203,72 @@ class SegurancaTests(BaseTest):
         self.assertEqual(r.headers.get('Access-Control-Allow-Origin'), 'http://localhost:5173')
         r = self.client.get('/api/layers/', HTTP_ORIGIN='http://site-estranho.com')
         self.assertIsNone(r.headers.get('Access-Control-Allow-Origin'))
+
+
+class AuthTests(BaseTest):
+    def setUp(self):
+        super().setUp()
+        User = get_user_model()
+        self.user = User.objects.create_user('ana', 'ana@x.com', 'senha-forte-123')
+        self.admin = User.objects.create_user('adm', 'adm@x.com', 'senha-forte-123', is_staff=True)
+
+    def _login(self, username='ana', password='senha-forte-123'):
+        return self.client.post('/api/auth/login/', {'username': username, 'password': password},
+                                format='json')
+
+    def test_login_ok_devolve_token(self):
+        r = self._login()
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['token'])
+
+    def test_login_senha_errada_400(self):
+        r = self._login(password='errada')
+        self.assertEqual(r.status_code, 400)
+        self.assertNotIn('token', r.json())
+
+    def test_login_sem_campos_400(self):
+        self.assertEqual(self.client.post('/api/auth/login/', {}, format='json').status_code, 400)
+
+    def test_login_so_aceita_post(self):
+        self.assertEqual(self.client.get('/api/auth/login/').status_code, 405)
+
+    def test_me_sem_token_401(self):
+        self.assertIn(self.client.get('/api/auth/me/').status_code, (401, 403))
+
+    def test_me_com_token(self):
+        token = self._login().json()['token']
+        r = self.client.get('/api/auth/me/', HTTP_AUTHORIZATION=f'Token {token}')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {'username': 'ana', 'email': 'ana@x.com', 'is_staff': False})
+
+    def test_token_invalido_401(self):
+        r = self.client.get('/api/auth/me/', HTTP_AUTHORIZATION='Token lixo')
+        self.assertEqual(r.status_code, 401)
+
+    def test_token_nao_vaza_senha(self):
+        self.assertNotIn('senha-forte-123', self._login().content.decode())
+
+    def test_logout_invalida_token(self):
+        token = self._login().json()['token']
+        h = {'HTTP_AUTHORIZATION': f'Token {token}'}
+        self.assertEqual(self.client.post('/api/auth/logout/', **h).status_code, 204)
+        self.assertEqual(self.client.get('/api/auth/me/', **h).status_code, 401)
+
+    def test_usuario_comum_nao_cria_import(self):
+        token = self._login().json()['token']
+        r = self.client.post('/api/imports/', {'source': self.source.id}, format='json',
+                             HTTP_AUTHORIZATION=f'Token {token}')
+        self.assertEqual(r.status_code, 403)
+
+    def test_admin_com_token_cria_import(self):
+        token = self._login('adm').json()['token']
+        r = self.client.post('/api/imports/', {'source': self.source.id}, format='json',
+                             HTTP_AUTHORIZATION=f'Token {token}')
+        self.assertEqual(r.status_code, 201)
+
+    def test_leitura_publica_continua_sem_token(self):
+        self.assertEqual(self.client.get('/api/layers/').status_code, 200)
+
+    def test_throttle_login_429(self):
+        codes = [self._login(password='errada').status_code for _ in range(12)]
+        self.assertIn(429, codes)

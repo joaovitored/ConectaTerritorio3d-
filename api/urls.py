@@ -10,6 +10,7 @@ router.register('layers', LayerViewSet, basename='layer')
 router.register('territories', TerritoryViewSet, basename='territory')
 router.register('indicators', IndicatorViewSet, basename='indicator')
 from .views import AIQueryView
+from .auth import LoginView, MeView, LogoutView
 
 router.register('imports', ImportJobViewSet, basename='import')
 
@@ -19,5 +20,8 @@ urlpatterns = router.urls + [
     path('features/<int:pk>/', FeatureDetailView.as_view(), name='feature-detail'),
     path('tilesets/', TilesetListView.as_view(), name='tileset-list'),
     path('ai/query/', AIQueryView.as_view(), name='ai-query'),
+    path('auth/login/', LoginView.as_view(), name='auth-login'),
+    path('auth/me/', MeView.as_view(), name='auth-me'),
+    path('auth/logout/', LogoutView.as_view(), name='auth-logout'),
 
 ]
