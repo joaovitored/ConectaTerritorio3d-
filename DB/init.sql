@@ -112,3 +112,51 @@ CREATE INDEX idx_imports_status ON public.importacoes USING btree (status);
 INSERT INTO public.territorios (nome, tipo_territorio, codigo, descricao) VALUES
     ('Olinda', 'municipio', '2609600', 'Município de Pernambuco'),
     ('Recife', 'municipio', '2611606', 'Capital de Pernambuco');
+
+-- =====================================================================
+-- DADOS DE TESTE GEOESPACIAIS (coordenadas APROXIMADAS, só para desenvolvimento)
+-- Troque pelos dados reais quando a fonte oficial for importada.
+-- Geometrias: MultiPolygon, SRID 4326 (longitude, latitude em graus).
+-- =====================================================================
+
+-- Fonte e camada
+INSERT INTO public.fontes_dados (nome, descricao, licenca, data_coleta, status_qualidade) VALUES
+    ('Dados de teste', 'Geometrias aproximadas criadas à mão para desenvolvimento', 'uso interno', CURRENT_DATE, 'teste');
+
+INSERT INTO public.camadas (fonte_dados_id, nome, tipo_camada, descricao)
+SELECT id, 'Lotes (teste)', 'cadastral', 'Lotes de exemplo em Olinda'
+FROM public.fontes_dados WHERE nome = 'Dados de teste';
+
+-- Contorno aproximado dos municípios (retângulos de teste)
+UPDATE public.territorios SET geometria = ST_Multi(ST_GeomFromText(
+    'POLYGON((-34.885 -8.040, -34.825 -8.040, -34.825 -7.960, -34.885 -7.960, -34.885 -8.040))', 4326))
+WHERE codigo = '2609600';   -- Olinda
+
+UPDATE public.territorios SET geometria = ST_Multi(ST_GeomFromText(
+    'POLYGON((-34.960 -8.150, -34.870 -8.150, -34.870 -8.000, -34.960 -8.000, -34.960 -8.150))', 4326))
+WHERE codigo = '2611606';   -- Recife
+
+-- Lotes de exemplo em Olinda (cada um dentro do contorno de Olinda)
+INSERT INTO public.lotes (territorio_id, fonte_dados_id, codigo, endereco, area_m2, uso_solo, zoneamento, geometria)
+SELECT t.id, f.id, v.codigo, v.endereco, v.area, v.uso, v.zona, ST_Multi(ST_GeomFromText(v.wkt, 4326))
+FROM public.territorios t, public.fontes_dados f,
+(VALUES
+  ('OL-001', 'Rua do Sol, 10',        300.00, 'residencial', 'ZUR-1', 'POLYGON((-34.8560 -8.0100, -34.8555 -8.0100, -34.8555 -8.0095, -34.8560 -8.0095, -34.8560 -8.0100))'),
+  ('OL-002', 'Rua do Sol, 20',        320.00, 'residencial', 'ZUR-1', 'POLYGON((-34.8554 -8.0100, -34.8549 -8.0100, -34.8549 -8.0095, -34.8554 -8.0095, -34.8554 -8.0100))'),
+  ('OL-003', 'Av. Principal, 100',    500.00, 'comercial',   'ZC-2',  'POLYGON((-34.8560 -8.0094, -34.8554 -8.0094, -34.8554 -8.0088, -34.8560 -8.0088, -34.8560 -8.0094))'),
+  ('OL-004', 'Praça Central, 5',      450.00, 'misto',       'ZM-1',  'POLYGON((-34.8553 -8.0094, -34.8547 -8.0094, -34.8547 -8.0088, -34.8553 -8.0088, -34.8553 -8.0094))'),
+  ('OL-005', 'Rua da Igreja, 40',     280.00, 'institucional','ZI-1', 'POLYGON((-34.8546 -8.0100, -34.8541 -8.0100, -34.8541 -8.0095, -34.8546 -8.0095, -34.8546 -8.0100))')
+) AS v(codigo, endereco, area, uso, zona, wkt)
+WHERE t.codigo = '2609600' AND f.nome = 'Dados de teste';
+
+-- Edificações de exemplo (cada uma dentro do seu lote)
+INSERT INTO public.edificacoes (lote_id, fonte_dados_id, nome, tipo_edificacao, pavimentos, altura_m, area_m2, geometria)
+SELECT l.id, f.id, v.nome, v.tipo, v.pav, v.altura, v.area, ST_Multi(ST_GeomFromText(v.wkt, 4326))
+FROM public.lotes l, public.fontes_dados f,
+(VALUES
+  ('OL-001', 'Casa 10',         'residencial', 1,  3.50, 120.00, 'POLYGON((-34.85590 -8.01000, -34.85565 -8.01000, -34.85565 -8.00975, -34.85590 -8.00975, -34.85590 -8.01000))'),
+  ('OL-003', 'Loja Principal',  'comercial',   2,  7.00, 300.00, 'POLYGON((-34.85590 -8.00935, -34.85550 -8.00935, -34.85550 -8.00895, -34.85590 -8.00895, -34.85590 -8.00935))'),
+  ('OL-004', 'Edifício Praça',  'misto',       5, 15.00, 250.00, 'POLYGON((-34.85520 -8.00935, -34.85480 -8.00935, -34.85480 -8.00895, -34.85520 -8.00895, -34.85520 -8.00935))'),
+  ('OL-005', 'Paróquia',        'institucional',1, 9.00, 200.00, 'POLYGON((-34.85450 -8.00995, -34.85420 -8.00995, -34.85420 -8.00960, -34.85450 -8.00960, -34.85450 -8.00995))')
+) AS v(codigo_lote, nome, tipo, pav, altura, area, wkt)
+WHERE l.codigo = v.codigo_lote AND f.nome = 'Dados de teste';
