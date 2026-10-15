@@ -116,6 +116,151 @@ Para o time testar o mesmo banco, existem duas saídas:
 1. Quem criou as tabelas deixa o script SQL no repositório (por exemplo `db/init.sql`), para todos criarem as mesmas tabelas e dados de teste.
 2. Quem tem o banco deixa o computador ligado e acessível na rede para os outros se conectarem (só funciona com todos na mesma rede).
 
+> ##Testes de Dados Geoespaciais
+
+Esta seção documenta os testes realizados no PostgreSQL com PostGIS para validar as geometrias dos municípios de Olinda e Recife e o arquivo GeoJSON utilizado na integração com o frontend CesiumJS.
+
+### 1. Pré-requisitos
+
+- Docker instalado e em execução.
+- Projeto aberto na pasta que contém o arquivo `compose.yaml`.
+- Serviço `db` iniciado pelo Docker Compose.
+- Arquivos geográficos disponíveis no projeto.
+
+### 2. Verificar o estado do Docker
+
+No terminal PowerShell, execute:
+
+```powershell
+docker compose ps
+```
+
+**Objetivo:** verificar se o container do banco de dados está em execução.
+
+### 3. Verificar a instalação do PostGIS
+
+Execute:
+
+```powershell
+docker compose exec db psql -U conecta_user -d conecta_territorio -c "SELECT PostGIS_Version();"
+```
+
+**Resultado esperado:** exibição da versão instalada do PostGIS.
+
+### 4. Validar as geometrias municipais
+
+Execute:
+
+```powershell
+docker compose exec db psql -U conecta_user -d conecta_territorio -c "SELECT id, nome, codigo, geometria IS NULL AS geometria_vazia, ST_IsValid(geometria) AS geometria_valida, ST_SRID(geometria) AS srid FROM territorios;"
+```
+
+**Resultado esperado:**
+
+| Município | Código IBGE | Geometria vazia | Geometria válida | SRID |
+|---|---|---|---|---|
+| Olinda | 2609600 | false (`f`) | true (`t`) | 4326 |
+| Recife | 2611606 | false (`f`) | true (`t`) | 4326 |
+
+O teste verifica se as geometrias estão preenchidas, se são válidas e se utilizam o sistema de referência espacial EPSG:4326.
+
+### 5. Verificar a quantidade de municípios cadastrados
+
+Execute:
+
+```powershell
+docker compose exec db psql -U conecta_user -d conecta_territorio -c "SELECT COUNT(*) FROM territorios;"
+```
+
+**Resultado esperado no cenário testado:** dois municípios cadastrados.
+
+Esse total corresponde ao estado atual validado durante os testes. Após a importação de outros municípios, o resultado deverá aumentar.
+
+### 6. Validar o arquivo GeoJSON exportado
+
+O arquivo `municipios.geojson` é gerado na raiz do projeto a partir das geometrias armazenadas no PostGIS.
+
+Verifique se o arquivo existe:
+
+```powershell
+Test-Path ".\municipios.geojson"
+```
+
+**Resultado esperado:** `True`.
+
+Em seguida, valide o conteúdo no PowerShell:
+
+```powershell
+$geo = Get-Content ".\municipios.geojson" -Raw | ConvertFrom-Json
+
+$geo.type
+$geo.features.Count
+
+$geo.features | Select-Object `
+    @{Name="Municipio";Expression={$_.properties.nome}},
+    @{Name="Codigo";Expression={$_.properties.codigo}},
+    @{Name="Geometria";Expression={$_.geometry.type}}
+```
+
+**Resultado esperado:**
+
+- Tipo principal: `FeatureCollection`.
+- Quantidade de feições: `2`.
+- Olinda: código `2609600`, geometria `MultiPolygon`.
+- Recife: código `2611606`, geometria `MultiPolygon`.
+
+### 7. Localização dos arquivos geográficos
+
+A organização utilizada no projeto é:
+
+```text
+ConectaTerritorio3d-/
+├── api/
+├── core/
+├── dados_geograficos/
+│   └── malha-pe-2025-v3.geojson
+├── db/
+│   ├── atualizar_geometrias_municipios.sql
+│   └── init.sql
+├── municipios.geojson
+├── compose.yaml
+├── manage.py
+└── README.md
+```
+
+- `dados_geograficos/malha-pe-2025-v3.geojson`: arquivo original da malha municipal.
+- `db/atualizar_geometrias_municipios.sql`: script SQL utilizado para atualizar as geometrias de Olinda e Recife.
+- `municipios.geojson`: arquivo exportado do PostGIS para testes e integração com o frontend.
+
+### 8. Executar novamente o script SQL
+
+Se for necessário reaplicar a atualização das geometrias, execute o comando abaixo a partir da raiz do projeto:
+
+```powershell
+Get-Content ".\db\atualizar_geometrias_municipios.sql" -Raw | docker compose exec -T db psql -U conecta_user -d conecta_territorio
+```
+
+**Atenção:** o script atualiza registros existentes. Confira seu conteúdo antes de executá-lo novamente e não o confunda com o procedimento de importação da malha municipal completa.
+
+### 9. Resultado dos testes
+
+Nos testes realizados, foram confirmados:
+
+- Conexão com o banco PostgreSQL/PostGIS.
+- Dois municípios cadastrados: Olinda e Recife.
+- Geometrias municipais preenchidas e válidas.
+- Sistema de referência espacial EPSG:4326.
+- Arquivo GeoJSON válido, contendo duas feições do tipo `MultiPolygon`.
+
+### 10. Próxima etapa: integração com o CesiumJS
+
+O arquivo GeoJSON poderá ser disponibilizado ao frontend para visualização dos limites municipais no CesiumJS.
+
+A integração visual deverá ser testada separadamente, verificando se as geometrias são exibidas corretamente no globo 3D.
+
+Os testes descritos nesta seção validam o banco e o arquivo GeoJSON, mas não comprovam, por si só, que a integração visual com o CesiumJS já está funcionando.
+
+
 > **Pendência:** as tabelas foram criadas direto pelo terminal e o script de criação ainda não está no repositório. Quem subir o container pela primeira vez terá um banco **sem tabelas** até o script ser adicionado.
 
 ### Estado atual da integração
