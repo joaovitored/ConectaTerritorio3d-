@@ -15,7 +15,7 @@ services:
     volumes:
       - postgis_data:/var/lib/postgresql/data
       # Cria as tabelas e os dados de teste na primeira vez que o banco sobe
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db/atualizar_geometrias_municipios.sql:/docker-entrypoint-initdb.d/zz_atualizar_geometrias.sql:ro
 
     healthcheck:
       test:
