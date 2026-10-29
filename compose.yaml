@@ -4,26 +4,53 @@ services:
     container_name: conecta_territorio_db
     restart: unless-stopped
 
+    env_file:
+      - path: .env
+        required: false
     environment:
-      POSTGRES_DB: conecta_territorio
-      POSTGRES_USER: conecta_user
-      POSTGRES_PASSWORD: conecta_dev_123
+      POSTGRES_DB: ${POSTGRES_DB:-conecta_territorio}
+      POSTGRES_USER: ${POSTGRES_USER:-conecta_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conecta_dev_123}
 
     ports:
       - "5433:5432"
 
     volumes:
       - postgis_data:/var/lib/postgresql/data
-      # Cria as tabelas e os dados de teste na primeira vez que o banco sobe
-      - ./db/atualizar_geometrias_municipios.sql:/docker-entrypoint-initdb.d/zz_atualizar_geometrias.sql:ro
+      # Só habilita o PostGIS; as tabelas são criadas pelas migrations do Django
+      - ./DB/init.sql:/docker-entrypoint-initdb.d/10_init.sql:ro
 
     healthcheck:
       test:
         - CMD-SHELL
-        - pg_isready -U conecta_user -d conecta_territorio
+        - pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}
       interval: 10s
       timeout: 5s
       retries: 5
 
+  api:
+    build: .
+    container_name: conecta_territorio_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-conecta_territorio}
+      POSTGRES_USER: ${POSTGRES_USER:-conecta_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conecta_dev_123}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      MEDIA_ROOT: /app/media
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app            # código montado: alterações aparecem sem rebuild
+      - media_data:/app/media
+
 volumes:
   postgis_data:
+  media_data:

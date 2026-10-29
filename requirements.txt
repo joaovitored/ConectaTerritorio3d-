@@ -2,3 +2,4 @@ Django>=6.0,<6.1
 djangorestframework
 django-cors-headers
 drf-spectacular
+psycopg[binary]

@@ -10,22 +10,28 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+def env_list(name, default=''):
+    return [v.strip() for v in os.environ.get(name, default).split(',') if v.strip()]
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-3p+b=v^_5dxa614$xr0-&8x*b0dpw+xa)&&mm!vet2^zftxm$i'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Configuração por ambiente: tudo que muda entre dev/homologação/produção vem de variáveis
+# (ver .env.example). Nenhum segredo de produção fica no repositório.
+DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
-ALLOWED_HOSTS = []
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise RuntimeError('Defina DJANGO_SECRET_KEY quando DJANGO_DEBUG=0.')
+    SECRET_KEY = 'django-insecure-somente-desenvolvimento'
+
+ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
 
 # Application definition
@@ -37,6 +43,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',         # GeoDjango
     'rest_framework',             # DRF
     'rest_framework.authtoken',   # login por token
     'corsheaders',                # CORS
@@ -80,12 +87,27 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'NAME': os.environ.get('POSTGRES_DB', 'conecta_territorio'),
+        'USER': os.environ.get('POSTGRES_USER', 'conecta_user'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5433'),
     }
 }
 
-CORS_ALLOWED_ORIGINS = ['http://localhost:5173']  # front (Vite)
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', 'http://localhost:5173')  # front (Vite)
+
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+# Arquivos enviados para importação (em produção: object storage)
+MEDIA_ROOT = Path(os.environ.get('MEDIA_ROOT', BASE_DIR / 'media'))
+MEDIA_URL = 'media/'
+IMPORT_MAX_UPLOAD_MB = int(os.environ.get('IMPORT_MAX_UPLOAD_MB', '50'))
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
@@ -143,10 +165,34 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {'anon': '60/min', 'user': '300/min', 'ai': '10/min', 'auth': '10/min'},
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.NamespaceVersioning',
+    'DEFAULT_VERSION': 'v1',
+    'ALLOWED_VERSIONS': ['v1'],
 }
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Conecta Território 3D API',
-    'VERSION': '0.1.0',
+    'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'PREPROCESSING_HOOKS': ['api.schema.only_v1'],
+    'SCHEMA_PATH_PREFIX': r'/api/v1',
+}
+
+# Limites das consultas espaciais (protegem o banco e o front de respostas pesadas)
+FEATURES_MAX_LIMIT = 1000        # máximo de feições por requisição
+FEATURES_DEFAULT_LIMIT = 200
+FEATURES_MAX_BBOX_DEG2 = 1.0     # área máxima do bbox em graus² (~ 110 km x 110 km)
+
+# Logs estruturados (uma linha por evento, chave=valor) no console do container
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'kv': {'format': 'ts=%(asctime)s level=%(levelname)s logger=%(name)s msg="%(message)s"'},
+    },
+    'handlers': {'console': {'class': 'logging.StreamHandler', 'formatter': 'kv'}},
+    'root': {'handlers': ['console'], 'level': os.environ.get('LOG_LEVEL', 'INFO')},
+    'loggers': {
+        'django.request': {'handlers': ['console'], 'level': 'WARNING', 'propagate': False},
+    },
 }

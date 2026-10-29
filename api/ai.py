@@ -19,6 +19,6 @@ def interpret(question):
     category = next(
         (c for c, kws in CATEGORY_KEYWORDS.items() if any(k in q for k in kws)), None
     )
-    matches = [t for t in Territory.objects.all() if t.name.lower() in q]
+    matches = [t for t in Territory.objects.only('id', 'code', 'name') if t.name.lower() in q]
     territory = max(matches, key=lambda t: len(t.name), default=None)
     return {'category': category, 'territory': territory}

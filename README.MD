@@ -5,43 +5,52 @@ API em Django REST Framework da plataforma 3D georreferenciada de dados territor
 ## Tecnologias
 
 - Python 3.14 e Django 6.0
-- Django REST Framework
+- Django REST Framework + **GeoDjango**
 - drf-spectacular (documentação OpenAPI/Swagger)
 - django-cors-headers
-- SQLite (banco que a API usa hoje)
-- PostgreSQL + PostGIS 16 em Docker (banco geoespacial, ainda não conectado à API; veja a seção abaixo)
+- PostgreSQL 16 + PostGIS 3.5 (banco único da API), em Docker
 
-## Como rodar
+Arquitetura (conforme o documento *Plataforma 3D – Arquitetura Tecnológica*):
+`CesiumJS → API Django/GeoDjango → PostgreSQL/PostGIS`. O front nunca acessa o banco.
+
+## Como rodar (Docker — recomendado)
+
+O GeoDjango precisa das bibliotecas GDAL/GEOS/PROJ. Elas já vêm na imagem da API, então
+o jeito mais simples é rodar tudo no Docker:
 
 ```bash
-# 1. Criar e ativar o ambiente virtual
-python -m venv venv
-venv\Scripts\activate          # Windows
-source venv/bin/activate       # Linux/macOS
+# 1. (opcional) copiar as variáveis de ambiente e ajustar
+copy .env.example .env          # Windows  (cp no Linux/macOS)
 
-# 2. Instalar as dependências
-python -m pip install -r requirements.txt
+# 2. Subir banco + API (a API roda o migrate sozinha ao subir)
+docker compose up -d --build
 
-# 3. Criar o banco local
-python manage.py migrate
+# 3. Criar um usuário administrador
+docker compose exec api python manage.py createsuperuser
 
-# 4. Criar um usuário administrador
-python manage.py createsuperuser
+# 4. Carregar dados
+docker compose exec api python manage.py importar_geojson dados_geograficos/malha-pe-2025-v3.geojson --target territory --fonte "IBGE - Malha Municipal PE 2025" --versao 2025-v3
+docker compose exec api python manage.py carregar_demo      # lotes/edificações de teste em Olinda
 
-# 5. Subir o servidor
-python manage.py runserver
+# 5. Rodar os testes
+docker compose exec api python manage.py test
 ```
 
 Links locais:
 
-- Admin: http://127.0.0.1:8000/admin/
+- Admin (com mapa para editar geometrias): http://127.0.0.1:8000/admin/
 - Documentação da API (Swagger): http://127.0.0.1:8000/api/docs/
 
-O banco `db.sqlite3` não é versionado: cada pessoa cria o seu com o `migrate`.
+Rodar fora do Docker também funciona, desde que GDAL esteja instalado na máquina
+(no Windows: OSGeo4W ou conda) e o `.env` aponte para `POSTGRES_HOST=localhost` e `POSTGRES_PORT=5433`.
+
+### Variáveis de ambiente
+
+Veja `.env.example`. Em produção, `DJANGO_DEBUG=0` exige `DJANGO_SECRET_KEY`; nenhum segredo fica no código.
 
 ## Banco geoespacial (PostgreSQL + PostGIS no Docker)
 
-O banco geoespacial roda num container Docker, definido no arquivo `compose.yaml`. Ele é **separado** do `db.sqlite3` que a API usa hoje.
+O banco geoespacial roda num container Docker, definido no arquivo `compose.yaml`. É o banco único da API (o SQLite não é mais usado).
 
 ### Pré-requisito
 
@@ -82,7 +91,8 @@ docker compose down -v
 
 ### Como inserir e consultar dados
 
-Entre no banco pelo terminal (pode ser o terminal do VS Code):
+O jeito recomendado é pela **API** (importação de GeoJSON) ou pelo **admin** (`/admin/`, com mapa para desenhar geometrias).
+Para olhar o banco direto:
 
 ```bash
 docker compose exec db psql -U conecta_user -d conecta_territorio
@@ -91,182 +101,72 @@ docker compose exec db psql -U conecta_user -d conecta_territorio
 Dentro do `psql`:
 
 ```sql
--- Inserir um território
-INSERT INTO territorios (nome, tipo_territorio, codigo, descricao)
-VALUES ('Olinda', 'municipio', '2609600', 'Município de Pernambuco');
-
--- Ver os dados inseridos
-SELECT * FROM territorios;
-
--- Listar todas as tabelas
+-- Listar as tabelas (as da API começam com api_)
 \dt
+
+-- Municípios cadastrados
+SELECT id, name, code, type FROM api_territory;
 
 -- Sair
 \q
 ```
 
-Para inserir em outras tabelas, use `INSERT INTO <tabela> (colunas) VALUES (valores);`. Para ver as colunas de uma tabela: `\d nome_da_tabela`.
+Não crie nem altere tabelas pelo `psql`: a estrutura é das migrations do Django (`makemigrations` + `migrate`).
 
 ### Importante: cada pessoa tem o seu banco
 
-O Docker **não compartilha** o banco entre computadores. Quando cada pessoa roda `docker compose up -d`, cria um banco próprio e vazio na sua máquina. Dados inseridos num PC **não aparecem** nos outros.
+O Docker **não compartilha** o banco entre computadores. Quando cada pessoa roda `docker compose up -d`, cria um banco próprio na sua máquina. Dados inseridos num PC **não aparecem** nos outros.
 
-Para o time testar o mesmo banco, existem duas saídas:
+Para todos terem os mesmos dados, cada pessoa roda os mesmos comandos de carga (`importar_geojson` com a malha do repositório e `carregar_demo`), descritos em "Como rodar".
 
-1. Quem criou as tabelas deixa o script SQL no repositório (por exemplo `db/init.sql`), para todos criarem as mesmas tabelas e dados de teste.
-2. Quem tem o banco deixa o computador ligado e acessível na rede para os outros se conectarem (só funciona com todos na mesma rede).
+## Testes de dados geoespaciais
 
-> ##Testes de Dados Geoespaciais
+Verificações manuais para conferir o banco e o GeoJSON entregue ao CesiumJS (os testes automáticos ficam em `api/tests.py`).
 
-Esta seção documenta os testes realizados no PostgreSQL com PostGIS para validar as geometrias dos municípios de Olinda e Recife e o arquivo GeoJSON utilizado na integração com o frontend CesiumJS.
-
-### 1. Pré-requisitos
-
-- Docker instalado e em execução.
-- Projeto aberto na pasta que contém o arquivo `compose.yaml`.
-- Serviço `db` iniciado pelo Docker Compose.
-- Arquivos geográficos disponíveis no projeto.
-
-### 2. Verificar o estado do Docker
-
-No terminal PowerShell, execute:
+### 1. Containers rodando
 
 ```powershell
 docker compose ps
 ```
 
-**Objetivo:** verificar se o container do banco de dados está em execução.
+**Resultado esperado:** `db` e `api` com status `running` (o `db` como `healthy`).
 
-### 3. Verificar a instalação do PostGIS
-
-Execute:
+### 2. PostGIS instalado
 
 ```powershell
 docker compose exec db psql -U conecta_user -d conecta_territorio -c "SELECT PostGIS_Version();"
 ```
 
-**Resultado esperado:** exibição da versão instalada do PostGIS.
-
-### 4. Validar as geometrias municipais
-
-Execute:
+### 3. Geometrias municipais válidas e em EPSG:4326
 
 ```powershell
-docker compose exec db psql -U conecta_user -d conecta_territorio -c "SELECT id, nome, codigo, geometria IS NULL AS geometria_vazia, ST_IsValid(geometria) AS geometria_valida, ST_SRID(geometria) AS srid FROM territorios;"
+docker compose exec db psql -U conecta_user -d conecta_territorio -c "SELECT count(*) AS total, count(*) FILTER (WHERE ST_IsValid(geometry)) AS validas, min(ST_SRID(geometry)) AS srid FROM api_territory WHERE type = 'municipio';"
 ```
 
-**Resultado esperado:**
+**Resultado esperado após importar a malha de PE:** `total = 185`, `validas = 185`, `srid = 4326`.
 
-| Município | Código IBGE | Geometria vazia | Geometria válida | SRID |
-|---|---|---|---|---|
-| Olinda | 2609600 | false (`f`) | true (`t`) | 4326 |
-| Recife | 2611606 | false (`f`) | true (`t`) | 4326 |
-
-O teste verifica se as geometrias estão preenchidas, se são válidas e se utilizam o sistema de referência espacial EPSG:4326.
-
-### 5. Verificar a quantidade de municípios cadastrados
-
-Execute:
+### 4. GeoJSON pela API
 
 ```powershell
-docker compose exec db psql -U conecta_user -d conecta_territorio -c "SELECT COUNT(*) FROM territorios;"
-```
-
-**Resultado esperado no cenário testado:** dois municípios cadastrados.
-
-Esse total corresponde ao estado atual validado durante os testes. Após a importação de outros municípios, o resultado deverá aumentar.
-
-### 6. Validar o arquivo GeoJSON exportado
-
-O arquivo `municipios.geojson` é gerado na raiz do projeto a partir das geometrias armazenadas no PostGIS.
-
-Verifique se o arquivo existe:
-
-```powershell
-Test-Path ".\municipios.geojson"
-```
-
-**Resultado esperado:** `True`.
-
-Em seguida, valide o conteúdo no PowerShell:
-
-```powershell
-$geo = Get-Content ".\municipios.geojson" -Raw | ConvertFrom-Json
-
+$geo = Invoke-RestMethod "http://127.0.0.1:8000/api/v1/features/?kind=territory&territory=2609600"
 $geo.type
-$geo.features.Count
-
-$geo.features | Select-Object `
-    @{Name="Municipio";Expression={$_.properties.nome}},
-    @{Name="Codigo";Expression={$_.properties.codigo}},
-    @{Name="Geometria";Expression={$_.geometry.type}}
+$geo.features | Select-Object @{N="Municipio";E={$_.properties.name}}, @{N="Codigo";E={$_.properties.code}}, @{N="Geometria";E={$_.geometry.type}}
 ```
 
-**Resultado esperado:**
+**Resultado esperado:** `FeatureCollection`, com Olinda (`2609600`) e geometria `MultiPolygon`.
 
-- Tipo principal: `FeatureCollection`.
-- Quantidade de feições: `2`.
-- Olinda: código `2609600`, geometria `MultiPolygon`.
-- Recife: código `2611606`, geometria `MultiPolygon`.
-
-### 7. Localização dos arquivos geográficos
-
-A organização utilizada no projeto é:
+### 5. Arquivos geográficos
 
 ```text
 ConectaTerritorio3d-/
-├── api/
-├── core/
 ├── dados_geograficos/
-│   └── malha-pe-2025-v3.geojson
-├── db/
-│   ├── atualizar_geometrias_municipios.sql
-│   └── init.sql
-├── municipios.geojson
-├── compose.yaml
-├── manage.py
-└── README.md
+│   ├── malha-pe-2025-v3.geojson   malha municipal original de PE (185 municípios)
+│   └── municipios.geojson         Olinda e Recife exportados para testes do front
+└── DB/
+    └── init.sql                   só habilita o PostGIS
 ```
 
-- `dados_geograficos/malha-pe-2025-v3.geojson`: arquivo original da malha municipal.
-- `db/atualizar_geometrias_municipios.sql`: script SQL utilizado para atualizar as geometrias de Olinda e Recife.
-- `municipios.geojson`: arquivo exportado do PostGIS para testes e integração com o frontend.
-
-### 8. Executar novamente o script SQL
-
-Se for necessário reaplicar a atualização das geometrias, execute o comando abaixo a partir da raiz do projeto:
-
-```powershell
-Get-Content ".\db\atualizar_geometrias_municipios.sql" -Raw | docker compose exec -T db psql -U conecta_user -d conecta_territorio
-```
-
-**Atenção:** o script atualiza registros existentes. Confira seu conteúdo antes de executá-lo novamente e não o confunda com o procedimento de importação da malha municipal completa.
-
-### 9. Resultado dos testes
-
-Nos testes realizados, foram confirmados:
-
-- Conexão com o banco PostgreSQL/PostGIS.
-- Dois municípios cadastrados: Olinda e Recife.
-- Geometrias municipais preenchidas e válidas.
-- Sistema de referência espacial EPSG:4326.
-- Arquivo GeoJSON válido, contendo duas feições do tipo `MultiPolygon`.
-
-### 10. Próxima etapa: integração com o CesiumJS
-
-O arquivo GeoJSON poderá ser disponibilizado ao frontend para visualização dos limites municipais no CesiumJS.
-
-A integração visual deverá ser testada separadamente, verificando se as geometrias são exibidas corretamente no globo 3D.
-
-Os testes descritos nesta seção validam o banco e o arquivo GeoJSON, mas não comprovam, por si só, que a integração visual com o CesiumJS já está funcionando.
-
-
-> **Pendência:** as tabelas foram criadas direto pelo terminal e o script de criação ainda não está no repositório. Quem subir o container pela primeira vez terá um banco **sem tabelas** até o script ser adicionado.
-
-### Estado atual da integração
-
-- A API (Django) ainda usa **SQLite**. As tabelas do PostGIS ainda não são lidas por ela.
-- A conexão do Django com o PostGIS e os models com geometria são a próxima etapa.
+A integração visual com o CesiumJS deve ser testada no front: estes testes validam o banco e a API, não o globo 3D.
 
 ## Quando alguém adicionar algo novo no projeto
 
@@ -277,76 +177,117 @@ Depois de um `git pull`, rode o que se aplica:
 | `requirements.txt` | `python -m pip install -r requirements.txt` |
 | Pasta `api/migrations/` (novo model ou campo) | `python manage.py migrate` |
 | `compose.yaml` (Docker) | `docker compose up -d` |
-| Qualquer código | `python manage.py test` (precisa passar antes de subir) |
+| Qualquer código | `docker compose exec api python manage.py test` (precisa passar antes de subir) |
+| `Dockerfile` | `docker compose up -d --build` |
 
-Antes de commitar: `python manage.py test`, e se mudou um model, `python manage.py makemigrations` e comite o arquivo gerado.
+Antes de commitar: rode os testes, e se mudou um model, `docker compose exec api python manage.py makemigrations` e comite o arquivo gerado.
 
 ## Endpoints
 
+Versão atual: **`/api/v1/`**. O prefixo `/api/` continua funcionando como alias da v1 (para não quebrar o front) e será removido na v2.
+
 | Método | Rota | Descrição |
 |---|---|---|
-| GET | `/api/layers/` | Camadas de dados (filtro `?category=`) |
-| GET | `/api/territories/` | Territórios (filtros `type`, `code`, `name`, `parent`) |
-| GET | `/api/indicators/` | Indicadores (filtros `territory`, `category`, `period`) |
-| GET | `/api/search/?q=` | Busca unificada por território e camada |
-| GET | `/api/features/` | Feições geográficas (em desenvolvimento) |
-| GET | `/api/tilesets/` | Tilesets 3D (em desenvolvimento) |
-| POST | `/api/imports/` | Cria um job de importação (somente administrador) |
-| POST | `/api/ai/query/` | Pergunta em linguagem natural sobre os dados |
+| GET | `/api/v1/layers/` | Catálogo de camadas (filtros `category`, `kind`). Camadas privadas só com login |
+| GET | `/api/v1/territories/` | Territórios (filtros `type`, `code`, `name`, `parent`, `bbox`, `contains=lon,lat`). Cada item traz `bbox` para enquadrar a câmera |
+| GET | `/api/v1/territories/{id}/summary/` | Agregação espacial: área (km², em metros reais), nº de lotes e edificações, uso do solo, indicadores |
+| GET | `/api/v1/indicators/` | Indicadores (filtros `territory`, `parcel`, `category`, `period`, `period_from`, `period_to`) |
+| GET | `/api/v1/search/?q=` | Busca por território, camada, código de lote, endereço, edificação ou coordenada `lon,lat` |
+| GET | `/api/v1/features/` | **GeoJSON** de `kind=territory\|parcel\|building` ou `layer=<id>`. Filtros: `bbox`, `territory`, `near`+`radius`, `land_use`, `zoning`, `use`, `min_height`, `limit`, `simplify` |
+| POST | `/api/v1/features/query/` | Feições que intersectam um polígono desenhado no mapa |
+| GET | `/api/v1/features/{kind}/{id}/` | Detalhe da feição clicada (geometria, atributos, indicadores) |
+| GET | `/api/v1/tilesets/` | URLs/metadados de 3D Tiles e raster (arquivos ficam em storage/CDN) |
+| GET/POST | `/api/v1/imports/` | Importação de GeoJSON com validação, reprojeção e proveniência (somente administrador) |
+| POST | `/api/v1/ai/query/` | Pergunta em linguagem natural sobre os dados |
+| POST | `/api/v1/auth/login/` · `logout/` · GET `me/` | Login por token |
 
-Todas as listas são paginadas (20 por página). Há limite de requisições: 60 por minuto sem login, 300 com login e 10 por minuto na IA. Ao exceder, a API responde `429`.
+Listas REST são paginadas (20 por página). `/features/` devolve no máximo 1000 feições (padrão 200) e indica
+`truncated: true` quando há mais; `bbox` maior que 1 grau² é recusado (400), para proteger o banco e o front.
+Limite de requisições: 60/min sem login, 300/min com login, 10/min na IA e no login. Ao exceder, a API responde `429`.
+
+### Exemplos para o CesiumJS
+
+```text
+GET /api/v1/features/?kind=building&bbox=-34.86,-8.02,-34.85,-8.00     → extrudar por properties.height_m
+GET /api/v1/features/?kind=territory&type=municipio&simplify=0.001     → limites em zoom distante
+GET /api/v1/features/parcel/12/                                         → painel do objeto clicado (id "parcel.12")
+```
+
+### Importar dados (ETL)
+
+`POST /api/v1/imports/` (multipart) com `source`, `target` (`territory`, `parcel` ou `building`), `file` (.geojson até 50 MB)
+e, opcionalmente, `layer`. O processamento:
+
+1. lê o CRS do arquivo e **reprojeta para EPSG:4326** (SRID oficial do projeto);
+2. **corrige geometrias inválidas** (`make_valid`) e converte Polygon → MultiPolygon;
+3. reconhece nomes de atributo comuns (`codigo`, `cod_munici`, `nome`, `endereco`, `altura`...);
+4. atualiza pelo código (reimportar não duplica) e liga lotes/edificações ao território que os contém;
+5. registra quantas feições entraram e falharam, os erros e a fonte (proveniência), e grava na **auditoria**.
+
+Pelo terminal: `python manage.py importar_geojson <arquivo> --target territory|parcel|building`.
 
 ## Estrutura do projeto
 
 ```
-ProjetoResidencia/
+ConectaTerritorio3d-/
 ├── api/                      App principal: toda a lógica da API
+│   ├── management/commands/  importar_geojson (ETL pelo terminal) e carregar_demo (dados de teste)
 │   ├── migrations/           Histórico de alterações do banco (versionado)
-│   │   └── 0001_initial.py   Cria as tabelas Source, Layer, Territory, Indicator e ImportJob
-│   ├── admin.py              Registra os models no painel /admin/
+│   ├── admin.py              Painel /admin/ (com mapa nas tabelas geográficas)
 │   ├── ai.py                 Interpreta a pergunta da IA (categoria e território) por regras
-│   ├── apps.py               Configuração do app `api` no Django
-│   ├── models.py             Tabelas do banco (fontes, camadas, territórios, indicadores, importações)
-│   ├── serializers.py        Convertem os models em JSON (e validam o corpo do POST da IA)
-│   ├── tests.py              Testes automatizados (35)
-│   ├── urls.py               Rotas da API (/api/layers/, /api/search/, ...)
-│   └── views.py              Lógica de cada endpoint (filtros, busca, IA, importação)
+│   ├── auth.py               Login/logout por token e /auth/me/
+│   ├── etl.py                Importação de GeoJSON: validação, reprojeção, proveniência
+│   ├── geo.py                Consultas espaciais, visibilidade de camadas e montagem do GeoJSON
+│   ├── models.py             Tabelas do banco (fontes, camadas, territórios, lotes, edificações...)
+│   ├── schema.py             Ajustes do Swagger (documenta só /api/v1/)
+│   ├── serializers.py        Convertem os models em JSON e validam as entradas
+│   ├── tests.py              Testes automatizados
+│   ├── urls.py               Rotas da API
+│   └── views.py              Lógica de cada endpoint
 ├── core/                     Configuração do projeto Django
-│   ├── settings.py           Banco, apps instalados, CORS, permissões, limites e Swagger
-│   ├── urls.py               Rotas principais: /admin/, /api/, /api/docs/
-│   ├── asgi.py               Ponto de entrada para servidores ASGI (produção)
-│   └── wsgi.py               Ponto de entrada para servidores WSGI (produção)
-├── compose.yaml              Sobe o PostgreSQL + PostGIS em Docker
+│   ├── settings.py           Banco (por variáveis de ambiente), CORS, permissões, limites, logs, Swagger
+│   └── urls.py               Rotas principais: /admin/, /api/v1/, /api/, /api/docs/
+├── dados_geograficos/        GeoJSON de origem (malha municipal de PE)
+├── DB/init.sql               Habilita o PostGIS na criação do banco
+├── Dockerfile                Imagem da API com GDAL/GEOS/PROJ
+├── compose.yaml              Sobe PostGIS (db) + API (api)
+├── .env.example              Modelo das variáveis de ambiente
 ├── manage.py                 Comando do Django (runserver, migrate, test, ...)
 ├── requirements.txt          Dependências do projeto
-├── README.MD                 Este arquivo
-├── .gitignore                Arquivos que o Git não versiona (banco local, cache, venv)
-└── .gitattributes            Configuração de fim de linha do Git
+└── README.MD                 Este arquivo
 ```
-
-> `db.sqlite3` é o banco local de cada pessoa. Ele é criado pelo `migrate` e **não** vai para o Git.
 
 ## Models (tabelas do banco)
 
+Todas as geometrias são `MultiPolygon` em **EPSG:4326**, com índice espacial GiST.
+
 | Model | Para que serve |
 |---|---|
-| `Source` | Fonte de um dado (nome, licença, data de coleta) |
-| `Layer` | Camada de dados exibida no mapa, com categoria e fonte |
-| `Territory` | Município, bairro ou setor, com hierarquia (um território pode ter um "pai") |
-| `Indicator` | Valor de um indicador de um território, com unidade, período e fonte |
-| `ImportJob` | Registro de uma importação de dados (status, versão, erros) |
+| `Source` | Fonte de um dado (licença, data de coleta, método de importação, versão, qualidade) |
+| `Layer` | Catálogo de camadas: categoria, tipo (`kind`), estilo, escala, responsável, pública/privada |
+| `Territory` | Município, bairro ou setor, com hierarquia e geometria |
+| `Parcel` | Lote/imóvel: código cadastral, endereço, área, uso do solo, zoneamento, geometria |
+| `Building` | Edificação: uso, pavimentos, altura, área, lote, geometria |
+| `Indicator` | Valor de um indicador de um território (ou lote), com unidade, período e fonte |
+| `Tileset` | Referência a 3D Tiles/raster publicados em storage/CDN |
+| `ImportJob` | Importação: status, arquivo, destino, registros processados/com erro, log |
+| `AuditLog` | Auditoria de operações críticas (importações) |
 
 ## Endpoints e onde cada um está
 
 | Rota | View (em `api/views.py`) |
 |---|---|
-| `/api/layers/` | `LayerViewSet` |
-| `/api/territories/` | `TerritoryViewSet` |
-| `/api/indicators/` | `IndicatorViewSet` |
-| `/api/search/` | `SearchView` |
-| `/api/imports/` | `ImportJobViewSet` |
-| `/api/ai/query/` | `AIQueryView` (usa `api/ai.py`) |
-| `/api/features/`, `/api/tilesets/` | `FeatureListView`, `FeatureDetailView`, `TilesetListView` (em desenvolvimento) |
+| `/api/v1/layers/` | `LayerViewSet` |
+| `/api/v1/territories/` e `/{id}/summary/` | `TerritoryViewSet` |
+| `/api/v1/indicators/` | `IndicatorViewSet` |
+| `/api/v1/search/` | `SearchView` |
+| `/api/v1/features/` | `FeatureListView` (usa `api/geo.py`) |
+| `/api/v1/features/query/` | `FeatureQueryView` |
+| `/api/v1/features/{kind}/{id}/` | `FeatureDetailView` |
+| `/api/v1/tilesets/` | `TilesetViewSet` |
+| `/api/v1/imports/` | `ImportJobViewSet` (usa `api/etl.py`) |
+| `/api/v1/ai/query/` | `AIQueryView` (usa `api/ai.py`) |
+| `/api/v1/auth/...` | `LoginView`, `MeView`, `LogoutView` (em `api/auth.py`) |
 | `/api/docs/` | Swagger (configurado em `core/urls.py`) |
 
 ## Testes
@@ -359,9 +300,11 @@ python manage.py test
 
 - [x] Endpoints base, busca e documentação Swagger
 - [x] Endpoint de IA com tratamento de "sem dados" e pergunta incompleta
-- [x] Container PostgreSQL + PostGIS (Docker) e tabela `territorios` criada
-- [ ] Script SQL das tabelas versionado no repositório
-- [ ] Conectar o Django ao PostGIS e criar models de lotes e edificações com geometria
-- [ ] `/api/features/` com GeoJSON
-- [ ] Importação real de dados (ETL)
-- [ ] Integração com LLM
+- [x] Container PostgreSQL + PostGIS (Docker)
+- [x] Django conectado ao PostGIS (GeoDjango); tabelas criadas por migrations
+- [x] Models de lotes e edificações com geometria
+- [x] `/api/v1/features/` com GeoJSON, filtros espaciais e limites
+- [x] Importação real de dados (ETL) com validação, reprojeção e proveniência
+- [x] API versionada, camadas públicas/privadas, auditoria, segredos por variável de ambiente
+- [ ] Integração com LLM (hoje o `/ai/query/` usa regras)
+- [ ] Fase de escala: Celery para importações grandes, Redis para cache, geração de 3D Tiles

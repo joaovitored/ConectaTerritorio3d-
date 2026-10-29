@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
   title: Conecta Território 3D API
-  version: 0.1.0
+  version: 1.0.0
 paths:
-  /api/ai/query/:
+  /api/v1/ai/query/:
     post:
       operationId: ai_query_create
       description: 'Pergunta em linguagem natural. A resposta é montada só com dados
@@ -48,6 +48,7 @@ paths:
                     records:
                     - id: 1
                       territory: '2611606'
+                      parcel: null
                       category: zoning
                       name: Zona ZUR-1
                       value: '12.5000'
@@ -79,7 +80,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: ''
-  /api/auth/login/:
+  /api/v1/auth/login/:
     post:
       operationId: auth_login
       description: POST usuário e senha → devolve o token. Limitado a 10 tentativas/min
@@ -110,7 +111,7 @@ paths:
           description: No response body
         '429':
           description: No response body
-  /api/auth/logout/:
+  /api/v1/auth/logout/:
     post:
       operationId: auth_logout
       description: Apaga o token do usuário (o próximo login gera outro).
@@ -123,7 +124,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /api/auth/me/:
+  /api/v1/auth/me/:
     get:
       operationId: auth_me
       description: Quem está logado — o front usa para saber se o token ainda vale.
@@ -140,11 +141,80 @@ paths:
               schema:
                 $ref: '#/components/schemas/MeResponse'
           description: ''
-  /api/features/:
+  /api/v1/features/:
     get:
       operationId: features_list
-      description: 'EM DESENVOLVIMENTO: ainda devolve lista vazia. O formato final
-        será GeoJSON.'
+      description: Feições em GeoJSON (EPSG:4326) filtradas por camada, área ou atributos.
+        Use "bbox" com a área visível do mapa e "simplify" em zoom distante.
+      parameters:
+      - in: query
+        name: bbox
+        schema:
+          type: string
+        description: 'Recorte pela área visível: minLon,minLat,maxLon,maxLat'
+      - in: query
+        name: kind
+        schema:
+          type: string
+        description: territory, parcel ou building (obrigatório se não houver "layer")
+      - in: query
+        name: land_use
+        schema:
+          type: string
+        description: 'Lotes: uso do solo'
+      - in: query
+        name: layer
+        schema:
+          type: integer
+        description: ID da camada; define o tipo de feição
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Máximo de feições (padrão 200, máx. 1000)
+      - in: query
+        name: min_height
+        schema:
+          type: number
+          format: double
+        description: 'Edificações: altura mínima em metros'
+      - in: query
+        name: near
+        schema:
+          type: string
+        description: 'Proximidade: ponto lon,lat'
+      - in: query
+        name: radius
+        schema:
+          type: number
+          format: double
+        description: Raio em metros para "near" (padrão 500, máx. 5000)
+      - in: query
+        name: simplify
+        schema:
+          type: number
+          format: double
+        description: 'Tolerância de simplificação em graus (ex.: 0.0001)'
+      - in: query
+        name: territory
+        schema:
+          type: string
+        description: Código do território (feições dentro dele)
+      - in: query
+        name: type
+        schema:
+          type: string
+        description: 'Territórios: municipio, bairro ou setor'
+      - in: query
+        name: use
+        schema:
+          type: string
+        description: 'Edificações: uso'
+      - in: query
+        name: zoning
+        schema:
+          type: string
+        description: 'Lotes: zoneamento'
       tags:
       - features
       security:
@@ -156,17 +226,29 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StubList'
+                $ref: '#/components/schemas/FeatureCollection'
           description: ''
-  /api/features/{id}/:
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ''
+  /api/v1/features/{kind}/{id}/:
     get:
       operationId: features_detail
-      description: 'EM DESENVOLVIMENTO: ainda responde 404.'
+      description: 'Detalhe da feição clicada no mapa (geometria completa, atributos
+        e indicadores). "kind" e "id" vêm do id da feição no GeoJSON, ex.: parcel.12.'
       parameters:
       - in: path
         name: id
         schema:
           type: integer
+        required: true
+      - in: path
+        name: kind
+        schema:
+          type: string
         required: true
       tags:
       - features
@@ -175,15 +257,60 @@ paths:
       - cookieAuth: []
       - {}
       responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoJSONFeature'
+          description: ''
         '404':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
           description: ''
-  /api/imports/:
+  /api/v1/features/query/:
+    post:
+      operationId: features_query
+      description: 'Filtro por área desenhada no mapa: devolve as feições que intersectam
+        o polígono.'
+      tags:
+      - features
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeatureQuery'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FeatureQuery'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FeatureQuery'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureCollection'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ''
+  /api/v1/imports/:
     get:
       operationId: imports_list
+      description: |-
+        Importação de GeoJSON (somente administrador). Com arquivo, o processamento roda na hora
+        e a resposta já traz o resultado; sem arquivo, o job fica 'pending' (carga externa).
       parameters:
       - name: page
         required: false
@@ -205,17 +332,20 @@ paths:
           description: ''
     post:
       operationId: imports_create
+      description: |-
+        Importação de GeoJSON (somente administrador). Com arquivo, o processamento roda na hora
+        e a resposta já traz o resultado; sem arquivo, o job fica 'pending' (carga externa).
       tags:
       - imports
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/ImportJob'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/ImportJob'
-          multipart/form-data:
+          application/json:
             schema:
               $ref: '#/components/schemas/ImportJob'
         required: true
@@ -229,7 +359,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/ImportJob'
           description: ''
-  /api/indicators/:
+  /api/v1/imports/{id}/:
+    get:
+      operationId: imports_retrieve
+      description: |-
+        Importação de GeoJSON (somente administrador). Com arquivo, o processamento roda na hora
+        e a resposta já traz o resultado; sem arquivo, o job fica 'pending' (carga externa).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this import job.
+        required: true
+      tags:
+      - imports
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJob'
+          description: ''
+  /api/v1/indicators/:
     get:
       operationId: indicators_list
       parameters:
@@ -245,10 +400,25 @@ paths:
         schema:
           type: integer
       - in: query
+        name: parcel
+        schema:
+          type: string
+        description: Código cadastral do lote
+      - in: query
         name: period
         schema:
           type: string
         description: Data do período, formato AAAA-MM-DD
+      - in: query
+        name: period_from
+        schema:
+          type: string
+        description: 'Série temporal: período inicial (AAAA-MM-DD)'
+      - in: query
+        name: period_to
+        schema:
+          type: string
+        description: 'Série temporal: período final (AAAA-MM-DD)'
       - in: query
         name: territory
         schema:
@@ -267,7 +437,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedIndicatorList'
           description: ''
-  /api/indicators/{id}/:
+  /api/v1/indicators/{id}/:
     get:
       operationId: indicators_retrieve
       parameters:
@@ -290,9 +460,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Indicator'
           description: ''
-  /api/layers/:
+  /api/v1/layers/:
     get:
       operationId: layers_list
+      description: Catálogo de camadas. Camadas privadas só aparecem para usuários
+        logados.
       parameters:
       - in: query
         name: category
@@ -300,6 +472,11 @@ paths:
           type: string
         description: 'Categoria: cadastral, fiscal, zoning, infra, land_use, terrain
           ou socio_env'
+      - in: query
+        name: kind
+        schema:
+          type: string
+        description: territory, parcel, building, tiles3d ou raster
       - name: page
         required: false
         in: query
@@ -319,9 +496,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedLayerList'
           description: ''
-  /api/layers/{id}/:
+  /api/v1/layers/{id}/:
     get:
       operationId: layers_retrieve
+      description: Catálogo de camadas. Camadas privadas só aparecem para usuários
+        logados.
       parameters:
       - in: path
         name: id
@@ -342,7 +521,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Layer'
           description: ''
-  /api/search/:
+  /api/v1/search/:
     get:
       operationId: search_retrieve
       parameters:
@@ -350,7 +529,8 @@ paths:
         name: q
         schema:
           type: string
-        description: Nome ou código (mínimo 2 caracteres)
+        description: Nome, código, endereço, código de lote ou coordenada "lon,lat"
+          (mínimo 2 caracteres)
         required: true
       tags:
       - search
@@ -371,15 +551,25 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: ''
-  /api/territories/:
+  /api/v1/territories/:
     get:
       operationId: territories_list
       parameters:
+      - in: query
+        name: bbox
+        schema:
+          type: string
+        description: 'Extensão espacial: minLon,minLat,maxLon,maxLat'
       - in: query
         name: code
         schema:
           type: string
         description: Código exato do território
+      - in: query
+        name: contains
+        schema:
+          type: string
+        description: Territórios que contêm o ponto lon,lat
       - in: query
         name: name
         schema:
@@ -414,7 +604,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedTerritoryList'
           description: ''
-  /api/territories/{id}/:
+  /api/v1/territories/{id}/:
     get:
       operationId: territories_retrieve
       parameters:
@@ -437,10 +627,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/Territory'
           description: ''
-  /api/tilesets/:
+  /api/v1/territories/{id}/summary/:
+    get:
+      operationId: territories_summary_retrieve
+      description: 'Agregação espacial: lotes, edificações, uso do solo e indicadores
+        mais recentes de cada categoria dentro do território.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this territory.
+        required: true
+      tags:
+      - territories
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerritorySummary'
+          description: ''
+  /api/v1/tilesets/:
     get:
       operationId: tilesets_list
-      description: 'EM DESENVOLVIMENTO: ainda devolve lista vazia.'
+      description: Metadados e URLs de tiles 3D/raster. Os arquivos ficam em object
+        storage/CDN.
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+        description: 3dtiles, xyz, wmts ou terrain
+      - in: query
+        name: layer
+        schema:
+          type: integer
+        description: ID da camada
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: territory
+        schema:
+          type: string
+        description: Código do território
       tags:
       - tilesets
       security:
@@ -452,7 +690,32 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StubList'
+                $ref: '#/components/schemas/PaginatedTilesetList'
+          description: ''
+  /api/v1/tilesets/{id}/:
+    get:
+      operationId: tilesets_retrieve
+      description: Metadados e URLs de tiles 3D/raster. Os arquivos ficam em object
+        storage/CDN.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this tileset.
+        required: true
+      tags:
+      - tilesets
+      security:
+      - tokenAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tileset'
           description: ''
 components:
   schemas:
@@ -511,6 +774,9 @@ components:
         * `ok` - ok
         * `needs_more_info` - needs_more_info
         * `no_data` - no_data
+    BlankEnum:
+      enum:
+      - ''
     CategoryEnum:
       enum:
       - cadastral
@@ -536,6 +802,87 @@ components:
           type: string
       required:
       - detail
+    FeatureCollection:
+      type: object
+      properties:
+        type:
+          type: string
+          default: FeatureCollection
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeoJSONFeature'
+        numberMatched:
+          type: integer
+        numberReturned:
+          type: integer
+        truncated:
+          type: boolean
+          description: true quando há mais feições que o limite
+      required:
+      - features
+      - numberMatched
+      - numberReturned
+      - truncated
+    FeatureQuery:
+      type: object
+      description: Corpo do filtro por área desenhada no mapa.
+      properties:
+        kind:
+          $ref: '#/components/schemas/FeatureQueryKindEnum'
+        geometry:
+          description: Polygon ou MultiPolygon GeoJSON em EPSG:4326
+        limit:
+          type: integer
+          minimum: 1
+        simplify:
+          type: number
+          format: double
+          minimum: 0
+      required:
+      - geometry
+      - kind
+    FeatureQueryKindEnum:
+      enum:
+      - territory
+      - parcel
+      - building
+      type: string
+      description: |-
+        * `territory` - territory
+        * `parcel` - parcel
+        * `building` - building
+    FormatEnum:
+      enum:
+      - 3dtiles
+      - xyz
+      - wmts
+      - terrain
+      type: string
+      description: |-
+        * `3dtiles` - 3D Tiles
+        * `xyz` - XYZ
+        * `wmts` - WMTS
+        * `terrain` - Terreno (quantized-mesh)
+    GeoJSONFeature:
+      type: object
+      properties:
+        type:
+          type: string
+          default: Feature
+        id:
+          type: string
+          description: '"<tipo>.<id>", ex.: parcel.12'
+        geometry:
+          type: object
+          additionalProperties: {}
+        properties:
+          type: object
+          additionalProperties: {}
+      required:
+      - geometry
+      - id
+      - properties
     ImportJob:
       type: object
       properties:
@@ -544,6 +891,17 @@ components:
           readOnly: true
         source:
           type: integer
+        layer:
+          type: integer
+          nullable: true
+        target:
+          oneOf:
+          - $ref: '#/components/schemas/TargetEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        file:
+          type: string
+          format: uri
+          nullable: true
         status:
           allOf:
           - $ref: '#/components/schemas/ImportJobStatusEnum'
@@ -551,6 +909,12 @@ components:
         version:
           type: string
           maxLength: 50
+        records_processed:
+          type: integer
+          readOnly: true
+        records_failed:
+          type: integer
+          readOnly: true
         error_log:
           type: string
           readOnly: true
@@ -558,6 +922,11 @@ components:
           type: string
           format: date-time
           readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
         finished_at:
           type: string
           format: date-time
@@ -568,7 +937,10 @@ components:
       - error_log
       - finished_at
       - id
+      - records_failed
+      - records_processed
       - source
+      - started_at
       - status
     ImportJobStatusEnum:
       enum:
@@ -590,6 +962,9 @@ components:
           readOnly: true
         territory:
           type: string
+        parcel:
+          type: string
+          nullable: true
         category:
           $ref: '#/components/schemas/CategoryEnum'
         name:
@@ -626,8 +1001,21 @@ components:
           maxLength: 200
         category:
           $ref: '#/components/schemas/CategoryEnum'
+        kind:
+          $ref: '#/components/schemas/LayerKindEnum'
+        description:
+          type: string
         source:
           type: string
+        owner:
+          type: string
+          maxLength: 150
+        scale:
+          type: string
+          maxLength: 100
+        style: {}
+        is_public:
+          type: boolean
         updated_at:
           type: string
           format: date-time
@@ -638,6 +1026,20 @@ components:
       - name
       - source
       - updated_at
+    LayerKindEnum:
+      enum:
+      - territory
+      - parcel
+      - building
+      - tiles3d
+      - raster
+      type: string
+      description: |-
+        * `territory` - Territórios (GeoJSON)
+        * `parcel` - Lotes (GeoJSON)
+        * `building` - Edificações (GeoJSON)
+        * `tiles3d` - 3D Tiles
+        * `raster` - Raster / XYZ / WMTS
     LoginRequest:
       type: object
       properties:
@@ -753,6 +1155,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Territory'
+    PaginatedTilesetList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tileset'
     SearchResponse:
       type: object
       properties:
@@ -766,35 +1191,35 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Layer'
-        message:
-          type: string
-          description: Só aparece quando nada foi encontrado
-      required:
-      - layers
-      - query
-      - territories
-    StubList:
-      type: object
-      properties:
-        count:
-          type: integer
-        next:
-          type: string
-          nullable: true
-        previous:
-          type: string
-          nullable: true
-        results:
+        parcels:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        buildings:
           type: array
           items:
             type: object
             additionalProperties: {}
         message:
           type: string
+          description: Só aparece quando nada foi encontrado
       required:
-      - count
-      - message
-      - results
+      - buildings
+      - layers
+      - parcels
+      - query
+      - territories
+    TargetEnum:
+      enum:
+      - territory
+      - parcel
+      - building
+      type: string
+      description: |-
+        * `territory` - Territórios
+        * `parcel` - Lotes
+        * `building` - Edificações
     Territory:
       type: object
       properties:
@@ -813,12 +1238,93 @@ components:
           type: string
           readOnly: true
           nullable: true
+        bbox:
+          type: array
+          items:
+            type: number
+            format: double
+          nullable: true
+          readOnly: true
+          description: '[minLon, minLat, maxLon, maxLat] ou null'
       required:
+      - bbox
       - code
       - id
       - name
       - parent
       - type
+    TerritorySummary:
+      type: object
+      properties:
+        territory:
+          $ref: '#/components/schemas/Territory'
+        area_km2:
+          type: number
+          format: double
+          nullable: true
+        parcels:
+          type: integer
+        parcels_area_m2:
+          type: number
+          format: double
+          nullable: true
+        buildings:
+          type: integer
+        buildings_avg_height_m:
+          type: number
+          format: double
+          nullable: true
+        land_use:
+          type: object
+          additionalProperties:
+            type: integer
+        indicators:
+          type: array
+          items:
+            $ref: '#/components/schemas/Indicator'
+      required:
+      - area_km2
+      - buildings
+      - buildings_avg_height_m
+      - indicators
+      - land_use
+      - parcels
+      - parcels_area_m2
+      - territory
+    Tileset:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        format:
+          $ref: '#/components/schemas/FormatEnum'
+        url:
+          type: string
+          format: uri
+          maxLength: 500
+        layer:
+          type: integer
+        territory:
+          type: string
+          nullable: true
+        version:
+          type: string
+          maxLength: 50
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - format
+      - id
+      - layer
+      - name
+      - updated_at
+      - url
     TokenResponse:
       type: object
       properties:
