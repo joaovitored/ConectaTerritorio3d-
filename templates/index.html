@@ -127,9 +127,37 @@ a { color: inherit; text-decoration: none; }
 .panel-head h2 { font: 700 15px 'Manrope',sans-serif; margin: 0; letter-spacing: -.2px; }
 .panel-head p { margin: 4px 0 0; color: #8b9899; font-size: 10px; }
 .inline-link { border: 0; background: transparent; color: var(--green-dark); font-size: 10px; font-weight: 700; padding: 5px; white-space: nowrap; }
-.map-preview, .map-large { position: relative; overflow: hidden; background: #eaf1ed; border-radius: 9px; }
-.map-preview { height: 278px; }
-.map-preview svg, .map-large svg { width: 100%; height: 100%; display: block; }
+.map-preview,
+.map-large {
+  position: relative;
+  overflow: hidden;
+  background: #eaf1ed;
+  border-radius: 9px;
+}
+
+.map-preview {
+  height: 278px;
+}
+
+.map-preview svg,
+.map-large svg,
+.map-preview .cesium-mount,
+.map-large .cesium-mount {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.map-large:fullscreen,
+.map-large:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  background: #07111a;
+}
 .map-caption { position: absolute; bottom: 11px; left: 13px; padding: 6px 9px; border-radius: 6px; background: rgba(255,255,255,.88); color: #657674; font-size: 9px; }
 .project-list { display: grid; }
 .project-row { display: flex; gap: 11px; align-items: center; padding: 12px 0; border-bottom: 1px solid #edf1ef; }
@@ -257,6 +285,8 @@ td strong { color: #263c3e; }
 }
 
   </style>
+  <link href="https://cdn.jsdelivr.net/npm/cesium@1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1/Build/Cesium/Cesium.js"></script>
 </head>
 <body>
   <div id="app"></div>
@@ -466,17 +496,19 @@ td strong { color: #263c3e; }
   }
 
   function exploreView() {
-    return `${heading('Explorar mapa', 'Pesquise uma região e escolha as camadas que deseja visualizar.')}
-      <div class="explore-top"><label class="explore-search">${icon('search')}<input id="region-search" placeholder="Buscar município, endereço ou coordenadas" value="${escapeHtml(state.selectedRegion)}" /></label><button class="primary-button" data-action="search-region">Pesquisar ${icon('arrow', 15)}</button></div>
-      <div class="explore-layout">
-        <article class="panel map-workspace"><div class="panel-head"><div><h2>Mapa interativo</h2><p>Área selecionada · ${escapeHtml(state.selectedRegion)}, Brasil</p></div><button class="inline-link" data-action="fullscreen-map">Expandir ${icon('compass', 14)}</button></div>
-          <div class="map-large">${terrainMap('explore-map')}<div class="map-tools"><button data-action="zoom-in" aria-label="Aumentar zoom">+</button><button data-action="zoom-out" aria-label="Diminuir zoom">−</button><button data-action="center-map" aria-label="Centralizar mapa">${icon('compass', 16)}</button></div><div class="map-legend"><div class="legend-item"><span class="legend-dot" style="background:#279a7b"></span> Elevação</div><div class="legend-item"><span class="legend-dot" style="background:#4c91ad"></span> Hidrografia</div><div class="legend-item"><span class="legend-dot" style="background:#d1a64d"></span> Uso do solo</div></div><span class="map-coordinates">-8.0476, -34.8770</span></div>
-        </article>
-        <aside class="side-stack"><article class="panel"><div class="panel-head"><div><h2>Camadas</h2><p>Selecione o que aparece no mapa</p></div><button class="inline-link" data-view="layers">Gerenciar</button></div><div class="layer-list">${layerRows()}</div></article>
-          <article class="panel"><div class="panel-head"><h2>Área selecionada</h2></div><div class="region-details"><div><small>Território</small><strong>${escapeHtml(state.selectedRegion)}</strong></div><div><small>Região</small><strong>Brasil · Nordeste</strong></div><div><small>Coordenadas</small><strong>-8.0476, -34.8770</strong></div><button class="primary-button full" data-action="save-region">Salvar território</button></div></article>
-        </aside>
-      </div>`;
-  }
+  const coordsText = `${mapCameraState.lat.toFixed(4)}, ${mapCameraState.lon.toFixed(4)}`;
+
+  return `${heading('Explorar mapa', 'Pesquise uma região e escolha as camadas que deseja visualizar.')}
+    <div class="explore-top"><label class="explore-search">${icon('search')}<input id="region-search" placeholder="Buscar município, endereço ou coordenadas" value="${escapeHtml(state.selectedRegion)}" /></label><button class="primary-button" data-action="search-region">Pesquisar ${icon('arrow', 15)}</button></div>
+    <div class="explore-layout">
+      <article class="panel map-workspace"><div class="panel-head"><div><h2>Mapa interativo</h2><p>Área selecionada · ${escapeHtml(state.selectedRegion)}, Brasil</p></div><button class="inline-link" data-action="fullscreen-map">Expandir ${icon('compass', 14)}</button></div>
+        <div class="map-large"><div id="cesium-container" class="cesium-mount"></div><div class="map-tools"><button data-action="zoom-in" aria-label="Aumentar zoom">+</button><button data-action="zoom-out" aria-label="Diminuir zoom">−</button><button data-action="center-map" aria-label="Centralizar mapa">${icon('compass', 16)}</button></div><div class="map-legend"><div class="legend-item"><span class="legend-dot" style="background:#279a7b"></span> Elevação</div><div class="legend-item"><span class="legend-dot" style="background:#4c91ad"></span> Hidrografia</div><div class="legend-item"><span class="legend-dot" style="background:#d1a64d"></span> Uso do solo</div></div><span class="map-coordinates">${coordsText}</span></div>
+      </article>
+      <aside class="side-stack"><article class="panel"><div class="panel-head"><div><h2>Camadas</h2><p>Selecione o que aparece no mapa</p></div><button class="inline-link" data-view="layers">Gerenciar</button></div><div class="layer-list">${layerRows()}</div></article>
+        <article class="panel"><div class="panel-head"><h2>Área selecionada</h2></div><div class="region-details"><div><small>Território</small><strong>${escapeHtml(state.selectedRegion)}</strong></div><div><small>Região</small><strong>Brasil · Nordeste</strong></div><div><small>Coordenadas</small><strong>${coordsText}</strong></div><button class="primary-button full" data-action="save-region">Salvar território</button></div></article>
+      </aside>
+    </div>`;
+}
 
   function projectsView() {
     const rows = state.projects.filter(p => `${p.name} ${p.place}`.toLowerCase().includes(state.search.toLowerCase()));
@@ -513,10 +545,16 @@ td strong { color: #263c3e; }
   }
 
   function render() {
-    if (state.view === 'login' || state.view === 'signup') return authView(state.view);
-    const content = ({ dashboard: dashboardView, explore: exploreView, projects: projectsView, layers: layersView, data: dataView, reports: reportsView, settings: settingsView }[state.view] || dashboardView)();
-    shell(content);
+  if (state.view !== 'explore') {
+    destroyCesiumViewer();
   }
+  if (state.view === 'login' || state.view === 'signup') return authView(state.view);
+  const content = ({ dashboard: dashboardView, explore: exploreView, projects: projectsView, layers: layersView, data: dataView, reports: reportsView, settings: settingsView }[state.view] || dashboardView)();
+  shell(content);
+  if (state.view === 'explore') {
+    initCesiumExplore();
+  }
+}
 
   function enterApp(user) {
     state.user = user;
@@ -587,16 +625,85 @@ td strong { color: #263c3e; }
         const input = document.getElementById('region-search');
         const value = input?.value.trim();
         if (!value) return showToast('Digite um município, endereço ou coordenadas.');
+
         state.selectedRegion = value;
+
+        // 1) Coordenadas digitadas como "lat, lon" (ex.: -8.1137, -35.0154)
+        const coordMatch = value.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+        if (coordMatch) {
+          const lat = Number(coordMatch[1]);
+          const lon = Number(coordMatch[2]);
+          if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+            mapCameraState.lat = lat;
+            mapCameraState.lon = lon;
+            mapCameraState.height = 120000;
+            mapCameraState.hasCustomView = true;
+            render();
+            return showToast(`Indo para ${lat.toFixed(4)}, ${lon.toFixed(4)}.`);
+          }
+        }
+
+        // 2) Busca por texto nas propriedades dos territórios carregados
+        const term = value.toLowerCase();
+        const matchedFeature = territoryGeojsonCache?.features?.find((feat) => {
+          const props = feat.properties || {};
+          return JSON.stringify(props).toLowerCase().includes(term);
+        });
+
+        if (matchedFeature) {
+          const geom = matchedFeature.geometry;
+          let firstCoord = null;
+
+          if (geom?.type === 'Point') firstCoord = geom.coordinates;
+          else if (geom?.type === 'Polygon') firstCoord = geom.coordinates?.[0]?.[0];
+          else if (geom?.type === 'MultiPolygon') firstCoord = geom.coordinates?.[0]?.[0]?.[0];
+
+          if (Array.isArray(firstCoord) && firstCoord.length >= 2) {
+            const lon = Number(firstCoord[0]);
+            const lat = Number(firstCoord[1]);
+            mapCameraState.lat = lat;
+            mapCameraState.lon = lon;
+            mapCameraState.height = 150000;
+            mapCameraState.hasCustomView = true;
+            render();
+            return showToast(`Localizado: ${value}.`);
+          }
+        }
+
+        mapCameraState.hasCustomView = false;
         render();
         return showToast(`Região selecionada: ${value}.`);
       }
       if (action === 'save-region') return showToast(`${state.selectedRegion} foi adicionado aos territórios salvos (demonstração).`);
       if (action === 'reset-layers') { state.layers.forEach((l, i) => l.on = [true, true, false, true][i]); render(); return showToast('Camadas restauradas.'); }
       if (action === 'clear-search') { state.search = ''; render(); return; }
-      if (action === 'zoom-in' || action === 'zoom-out') return showToast(action === 'zoom-in' ? 'Zoom aumentado (visualização demonstrativa).' : 'Zoom reduzido (visualização demonstrativa).');
-      if (action === 'center-map') return showToast('Mapa centralizado na região selecionada.');
-      if (action === 'fullscreen-map') return showToast('A visualização em tela cheia será conectada ao mapa interativo.');
+      if (action === 'zoom-in') { moveCesiumCamera(0.35); return; }
+      if (action === 'zoom-out') { moveCesiumCamera(-0.35); return; }
+      if (action === 'center-map') {
+        if (cesiumViewer && !cesiumViewer.isDestroyed()) {
+          if (territoryDataSource) {
+            cesiumViewer.zoomTo(territoryDataSource);
+          } else {
+            cesiumViewer.camera.flyTo({
+              destination: Cesium.Cartesian3.fromDegrees(-35.5, -8.3, 950000)
+            });
+          }
+        }
+        return showToast('Mapa centralizado na região selecionada.');
+      }
+      if (action === 'fullscreen-map') {
+  const targetEl = document.querySelector('.map-large') || document.getElementById('cesium-container');
+  if (!targetEl) return;
+
+  if (!document.fullscreenElement) {
+    targetEl.requestFullscreen?.().catch(() => {
+      showToast('Não foi possível entrar em tela cheia neste navegador.');
+    });
+  } else {
+    document.exitFullscreen?.().catch(() => {});
+  }
+  return;
+}
       if (action === 'report-demo') return showToast('A exportação será habilitada quando o backend estiver conectado.');
     }
     const layerButton = event.target.closest('[data-layer]');
@@ -619,6 +726,109 @@ td strong { color: #263c3e; }
       }
     }
   });
+
+
+let cesiumViewer = null;
+  let territoryDataSource = null;
+  
+  function destroyCesiumViewer() {
+    if (cesiumViewer && !cesiumViewer.isDestroyed()) {
+      cesiumViewer.destroy();
+    }
+    cesiumViewer = null;
+    territoryDataSource = null;
+  }
+
+  async function loadTerritoryFeatures() {
+    const response = await fetch('/api/v1/features/?kind=territory');
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    const features = Array.isArray(payload) ? payload : (payload.features || []);
+
+    return {
+      type: 'FeatureCollection',
+      features
+    };
+  }
+
+  async function initCesiumExplore() {
+    const container = document.getElementById('cesium-container');
+    if (!container || !window.Cesium) return;
+
+    destroyCesiumViewer();
+
+    cesiumViewer = new Cesium.Viewer(container, {
+      animation: false,
+      timeline: false,
+      baseLayerPicker: false,
+      geocoder: false,
+      homeButton: false,
+      sceneModePicker: false,
+      navigationHelpButton: false,
+      fullscreenButton: false,
+      infoBox: false,
+      selectionIndicator: false
+    });
+
+    // Posição inicial aproximada em Pernambuco
+    cesiumViewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(-35.5, -8.3, 950000)
+    });
+
+    try {
+      const geojson = await loadTerritoryFeatures();
+      territoryGeojsonCache = geojson;
+
+      if (!geojson.features.length) {
+        showToast('Nenhum território retornado em /api/v1/features/?kind=territory.');
+        return;
+      }
+
+      territoryDataSource = await Cesium.GeoJsonDataSource.load(geojson, {
+        stroke: Cesium.Color.fromCssColorString('#21b99a'),
+        fill: Cesium.Color.fromCssColorString('#21b99a').withAlpha(0.28),
+        strokeWidth: 2,
+        clampToGround: true
+      });
+
+      if (!cesiumViewer || cesiumViewer.isDestroyed()) return;
+      await cesiumViewer.dataSources.add(territoryDataSource);
+
+      if (!mapCameraState.hasCustomView) {
+        await cesiumViewer.zoomTo(territoryDataSource);
+      } else {
+        cesiumViewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(
+            mapCameraState.lon,
+            mapCameraState.lat,
+            mapCameraState.height
+          )
+        });
+      }
+    } catch (err) {
+      showToast(`Erro ao carregar territórios do CesiumJS: ${err.message}`);
+    }
+  }
+
+  function moveCesiumCamera(factor) {
+    if (!cesiumViewer || cesiumViewer.isDestroyed()) return;
+    const height = cesiumViewer.camera.positionCartographic.height;
+    const step = height * factor;
+    if (factor > 0) {
+      cesiumViewer.camera.zoomIn(step);
+    } else {
+      cesiumViewer.camera.zoomOut(Math.abs(step));
+    }
+  }
+  let territoryGeojsonCache = null;
+let mapCameraState = {
+  lat: -8.0476,
+  lon: -34.8770,
+  height: 950000,
+  hasCustomView: false
+};
 
   render();
 })();

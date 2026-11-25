@@ -206,7 +206,7 @@
       <div class="explore-top"><label class="explore-search">${icon('search')}<input id="region-search" placeholder="Buscar município, endereço ou coordenadas" value="${escapeHtml(state.selectedRegion)}" /></label><button class="primary-button" data-action="search-region">Pesquisar ${icon('arrow', 15)}</button></div>
       <div class="explore-layout">
         <article class="panel map-workspace"><div class="panel-head"><div><h2>Mapa interativo</h2><p>Área selecionada · ${escapeHtml(state.selectedRegion)}, Brasil</p></div><button class="inline-link" data-action="fullscreen-map">Expandir ${icon('compass', 14)}</button></div>
-          <div class="map-large">${terrainMap('explore-map')}<div class="map-tools"><button data-action="zoom-in" aria-label="Aumentar zoom">+</button><button data-action="zoom-out" aria-label="Diminuir zoom">−</button><button data-action="center-map" aria-label="Centralizar mapa">${icon('compass', 16)}</button></div><div class="map-legend"><div class="legend-item"><span class="legend-dot" style="background:#279a7b"></span> Elevação</div><div class="legend-item"><span class="legend-dot" style="background:#4c91ad"></span> Hidrografia</div><div class="legend-item"><span class="legend-dot" style="background:#d1a64d"></span> Uso do solo</div></div><span class="map-coordinates">-8.0476, -34.8770</span></div>
+          <div class="map-large"><div id="cesium-container" class="cesium-mount"></div><div class="map-tools"><button data-action="zoom-in" aria-label="Aumentar zoom">+</button><button data-action="zoom-out" aria-label="Diminuir zoom">−</button><button data-action="center-map" aria-label="Centralizar mapa">${icon('compass', 16)}</button></div><div class="map-legend"><div class="legend-item"><span class="legend-dot" style="background:#279a7b"></span> Elevação</div><div class="legend-item"><span class="legend-dot" style="background:#4c91ad"></span> Hidrografia</div><div class="legend-item"><span class="legend-dot" style="background:#d1a64d"></span> Uso do solo</div></div><span class="map-coordinates">-8.0476, -34.8770</span></div>
         </article>
         <aside class="side-stack"><article class="panel"><div class="panel-head"><div><h2>Camadas</h2><p>Selecione o que aparece no mapa</p></div><button class="inline-link" data-view="layers">Gerenciar</button></div><div class="layer-list">${layerRows()}</div></article>
           <article class="panel"><div class="panel-head"><h2>Área selecionada</h2></div><div class="region-details"><div><small>Território</small><strong>${escapeHtml(state.selectedRegion)}</strong></div><div><small>Região</small><strong>Brasil · Nordeste</strong></div><div><small>Coordenadas</small><strong>-8.0476, -34.8770</strong></div><button class="primary-button full" data-action="save-region">Salvar território</button></div></article>
@@ -356,5 +356,11 @@
     }
   });
 
+  document.addEventListener('fullscreenchange', () => {
+  if (cesiumViewer && !cesiumViewer.isDestroyed()) {
+    cesiumViewer.resize();
+    cesiumViewer.scene.requestRender?.();
+  }
+});
   render();
 })();
